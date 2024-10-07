@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 
 interface BlogPost {
   id: number;
@@ -16,10 +15,14 @@ const Blog: React.FC = () => {
   useEffect(() => {
     const fetchPosts = async () => {
       try {
-        const response = await axios.get('http://localhost:8000/api/blog-posts');
-        setPosts(response.data);
+        const response = await fetch('http://localhost:8000/api/blog-posts');
+        if (!response.ok) {
+          throw new Error('Failed to fetch blog posts');
+        }
+        const data = await response.json();
+        setPosts(data);
         setLoading(false);
-      } catch (err) {
+      } catch (_) {
         setError('Failed to fetch blog posts');
         setLoading(false);
       }
