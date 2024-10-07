@@ -13,9 +13,19 @@ pip install --upgrade -r requirements.txt
 echo "Installing Node.js dependencies..."
 npm install
 
-# Start the FastAPI backend
+# Start the FastAPI backend with fallback ports
 echo "Starting FastAPI backend..."
-uvicorn server:app --reload &
+for port in 8000 8001 8002; do
+    uvicorn server:app --reload --port $port &
+    PID=$!
+    sleep 2
+    if ps -p $PID > /dev/null; then
+        echo "FastAPI backend started on port $port"
+        break
+    else
+        echo "Port $port is in use, trying next port..."
+    fi
+done
 
 # Wait for a moment to ensure the backend has started
 sleep 5
