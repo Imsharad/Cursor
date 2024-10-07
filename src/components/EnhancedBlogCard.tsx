@@ -1,9 +1,12 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
-import { BookmarkIcon, Clock, Share2 } from 'lucide-react'
+import { BookmarkIcon, Clock, Share2, CalendarIcon, UserIcon } from 'lucide-react'
 import { Card, CardContent, CardFooter, CardHeader } from "./ui/card"
 import { Button } from "./ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip"
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar"
+import { Badge } from "./ui/badge"
+import { format } from 'date-fns'
 
 interface EnhancedBlogCardProps {
   id: number;
@@ -25,13 +28,13 @@ interface EnhancedBlogCardProps {
 // ... (keep other subcomponents like CategoryBadge, BlogTitle, AuthorInfo, etc.)
 
 const CategoryBadge = ({ category }: { category: string }) => (
-  <span className="absolute -top-4 left-4 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full">
+  <Badge className="absolute top-4 left-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold px-3 py-1 rounded-full shadow-md">
     {category}
-  </span>
+  </Badge>
 )
 
 const BlogTitle = ({ title, slug }: { title: string; slug: string }) => (
-  <h3 className="text-xl font-bold leading-tight mb-2 mt-2 line-clamp-2">
+  <h3 className="text-2xl font-bold tracking-tight leading-tight mb-2 line-clamp-2 group-hover:text-blue-600 transition-colors duration-300">
     <Link to={`/blog/${slug}`} className="hover:underline">
       {title}
     </Link>
@@ -39,46 +42,42 @@ const BlogTitle = ({ title, slug }: { title: string; slug: string }) => (
 )
 
 const BlogExcerpt = ({ content }: { content: string }) => {
-  const truncatedContent = content.split(' ').slice(0, 30).join(' ') + '...'
-  return <p className="text-gray-600 line-clamp-3">{truncatedContent}</p>
+  const truncatedContent = content.split(' ').slice(0, 25).join(' ') + '...'
+  return <p className="text-gray-600 dark:text-gray-300 line-clamp-3">{truncatedContent}</p>
 }
 
 const AuthorInfo = ({ author, date, readTime }: { author: { name: string; avatar?: string }; date: string; readTime?: string }) => (
-  <div className="flex items-center space-x-4 mb-4">
-    {author.avatar && (
-      <img
-        src={author.avatar}
-        alt={author.name}
-        className="w-10 h-10 rounded-full"
-      />
-    )}
-    <div>
-      <p className="text-sm font-medium">{author.name}</p>
-      <div className="flex items-center text-xs text-gray-500">
-        <span className="mr-2">{date}</span>
-        {readTime && (
-          <>
-            <Clock className="mr-1 h-3 w-3" />
-            <span>{readTime}</span>
-          </>
-        )}
-      </div>
+  <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+    <div className="flex items-center gap-2">
+      <Avatar className="h-8 w-8 border-2 border-white shadow-sm">
+        <AvatarImage src={author.avatar} alt={author.name} />
+        <AvatarFallback>{author.name[0]}</AvatarFallback>
+      </Avatar>
+      <span className="font-medium">{author.name}</span>
     </div>
+    <div className="flex items-center gap-2">
+      <CalendarIcon className="h-4 w-4" />
+      <time dateTime={date}>{format(new Date(date), "MMMM d, yyyy")}</time>
+    </div>
+    {readTime && (
+      <div className="flex items-center gap-2">
+        <Clock className="h-4 w-4" />
+        <span>{readTime}</span>
+      </div>
+    )}
   </div>
 )
 
-// Removed BlogStats component since 'views' and 'comments' are no longer used
-
 const BookmarkButton = () => (
-  <Button variant="ghost" size="icon">
-    <BookmarkIcon className="h-4 w-4" />
+  <Button variant="ghost" size="icon" className="text-gray-500 hover:text-blue-600 transition-colors duration-300">
+    <BookmarkIcon className="h-5 w-5" />
     <span className="sr-only">Bookmark</span>
   </Button>
 )
 
 const ShareButton = () => (
-  <Button variant="ghost" size="icon">
-    <Share2 className="h-4 w-4" />
+  <Button variant="ghost" size="icon" className="text-gray-500 hover:text-blue-600 transition-colors duration-300">
+    <Share2 className="h-5 w-5" />
     <span className="sr-only">Share</span>
   </Button>
 )
@@ -94,25 +93,28 @@ const EnhancedBlogCard: React.FC<EnhancedBlogCardProps> = ({
   slug,
 }) => {
   return (
-    <Card className="overflow-hidden transition-all duration-300 hover:shadow-lg">
-      <div className="relative">
+    <Card className="overflow-hidden transition-all duration-300 hover:shadow-xl group">
+      <div className="relative h-56 sm:h-64">
         <img
           src={image}
           alt={title}
-          className="object-cover w-full h-[200px]"
+          className="object-cover w-full h-full brightness-90 group-hover:brightness-100 transition-all duration-300"
         />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
         <CategoryBadge category={category} />
       </div>
-      <CardHeader>
+      <CardHeader className="pb-2">
         <BlogTitle title={title} slug={slug} />
-        <BlogExcerpt content={content} />
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <BlogExcerpt content={content} />
         <AuthorInfo author={author} date={date} readTime={readTime} />
       </CardContent>
-      <CardFooter className="flex justify-between">
-        <Link to={`/blog/${slug}`} className="text-blue-500 hover:underline">
-          Read More
+      <CardFooter className="flex justify-between items-center">
+        <Link to={`/blog/${slug}`}>
+          <Button variant="outline" className="group-hover:bg-blue-600 group-hover:text-white transition-all duration-300">
+            Read More
+          </Button>
         </Link>
         <div className="flex space-x-2">
           <TooltipProvider>

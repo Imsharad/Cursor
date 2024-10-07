@@ -23,24 +23,26 @@ const Blog: React.FC = () => {
     loadPosts();
   }, []);
 
-  if (loading) return <div className="text-center py-8">Loading...</div>;
-  if (error) return <div className="text-center py-8 text-red-600">{error}</div>;
+  if (loading) return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  if (error) return <div className="flex items-center justify-center h-screen text-red-600">{error}</div>;
 
   return (
-    <div className="container mx-auto px-4 py-12">
-      <h1 className="text-4xl font-bold mb-8">Our Blog</h1>
-      {posts.length === 0 ? (
-        <p className="text-center">No blog posts found.</p>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {posts.map((post) => (
-            <EnhancedBlogCard
-              key={post.id}
-              {...post}
-            />
-          ))}
-        </div>
-      )}
+    <div className="min-h-screen bg-gray-50">
+      <div className="container mx-auto px-4 py-12">
+        <h1 className="text-4xl font-bold mb-8 text-center">Our Blog</h1>
+        {posts.length === 0 ? (
+          <p className="text-center">No blog posts found.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {posts.map((post) => (
+              <EnhancedBlogCard
+                key={post.id}
+                {...post}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
