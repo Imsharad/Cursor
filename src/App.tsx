@@ -4,6 +4,7 @@ import Header from './components/Header';
 import Footer from './components/Footer';
 import Home from './pages/Home';
 import Blog from './pages/Blog';
+import BlogPost from './pages/Blog/[slug]'; // Import the BlogPost component
 import Courses from './pages/Courses';
 import Buy from './pages/Buy';
 import Contact from './pages/Contact';
@@ -18,6 +19,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/blog" element={<Blog />} />
+            <Route path="/blog/:slug" element={<BlogPost />} />
             <Route path="/courses" element={<Courses />} />
             <Route path="/buy" element={<Buy />} />
             <Route path="/contact" element={<Contact />} />

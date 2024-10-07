@@ -7,17 +7,18 @@ import { Card, CardContent, CardFooter, CardHeader } from "../components/ui/card
 import { Button } from "../components/ui/button"
 import { Tooltip } from "../components/ui/tooltip"
 
-interface BlogCardProps {
+interface EnhancedBlogCardProps {
   title: string
   content: string
   author: {
     name: string
-    avatar: string
+    avatar?: string  // Make avatar optional
   }
   date: string
-  readTime: string
+  readTime?: string
   category: string
   image: string
+  slug: string
 }
 
 // ... (keep other subcomponents like CategoryBadge, BlogTitle, AuthorInfo, etc.)
@@ -28,32 +29,41 @@ const CategoryBadge = ({ category }: { category: string }) => (
   </span>
 )
 
-const BlogTitle = ({ title }: { title: string }) => (
-  <h3 className="text-xl font-bold leading-tight mb-2 mt-2 line-clamp-2">
-    <Link to="#" className="hover:underline">
-      {title}
-    </Link>
-  </h3>
-)
+const BlogTitle = ({ title }: { title: string }) => {
+  const slug = title.toLowerCase().replace(/[^\w ]+/g, '').replace(/ +/g, '-');
+  return (
+    <h3 className="text-xl font-bold leading-tight mb-2 mt-2 line-clamp-2">
+      <Link to={`/blog/${slug}`} className="hover:underline">
+        {title}
+      </Link>
+    </h3>
+  )
+}
 
 const BlogExcerpt = ({ content }: { content: string }) => {
   const truncatedContent = content.split(' ').slice(0, 30).join(' ') + '...'
   return <p className="text-gray-600 line-clamp-3">{truncatedContent}</p>
 }
 
-const AuthorInfo = ({ author, date, readTime }: { author: { name: string; avatar: string }; date: string; readTime: string }) => (
+const AuthorInfo = ({ author, date, readTime }: { author: { name: string; avatar?: string }; date: string; readTime?: string }) => (
   <div className="flex items-center space-x-4 mb-4">
-    <img
-      src={author.avatar}
-      alt={author.name}
-      className="w-10 h-10 rounded-full"
-    />
+    {author.avatar && (
+      <img
+        src={author.avatar}
+        alt={author.name}
+        className="w-10 h-10 rounded-full"
+      />
+    )}
     <div>
       <p className="text-sm font-medium">{author.name}</p>
       <div className="flex items-center text-xs text-gray-500">
         <span className="mr-2">{date}</span>
-        <Clock className="mr-1 h-3 w-3" />
-        <span>{readTime}</span>
+        {readTime && (
+          <>
+            <Clock className="mr-1 h-3 w-3" />
+            <span>{readTime}</span>
+          </>
+        )}
       </div>
     </div>
   </div>
@@ -88,7 +98,7 @@ const ShareButton = () => (
   </Tooltip>
 )
 
-const EnhancedBlogCard: React.FC<BlogCardProps> = ({
+const EnhancedBlogCard: React.FC<EnhancedBlogCardProps> = ({
   title,
   content,
   author,
@@ -96,6 +106,7 @@ const EnhancedBlogCard: React.FC<BlogCardProps> = ({
   readTime,
   category,
   image,
+  slug,
 }) => {
   return (
     <Card className="overflow-hidden transition-all duration-300 hover:shadow-lg">
@@ -115,9 +126,9 @@ const EnhancedBlogCard: React.FC<BlogCardProps> = ({
         <AuthorInfo author={author} date={date} readTime={readTime} />
       </CardContent>
       <CardFooter className="flex justify-between">
-        <Button variant="outline" size="sm">
+        <Link to={`/blog/${slug}`} className="text-blue-500 hover:underline">
           Read More
-        </Button>
+        </Link>
         <div className="flex space-x-2">
           <BookmarkButton />
           <ShareButton />

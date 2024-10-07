@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import frontmatter
+from flask import Flask, send_from_directory
+from slugify import slugify  # ⬇️ Ensure slugify is imported
 
 app = FastAPI()
 
@@ -24,9 +26,11 @@ async def get_blog_posts():
             filepath = os.path.join(blog_dir, filename)
             with open(filepath, 'r', encoding='utf-8') as file:
                 post = frontmatter.load(file)
+                slug = slugify(post.metadata.get('title'))  # ✅ Generate slug from title
                 posts.append({
                     'id': post.metadata.get('id'),
                     'title': post.metadata.get('title'),
+                    'slug': slug,  # ✅ Include slug
                     'content': post.content,
                     'date': post.metadata.get('date'),
                     'author': post.metadata.get('author'),
@@ -35,6 +39,11 @@ async def get_blog_posts():
                     'image': post.metadata.get('image'),
                 })
     return posts
+
+# Serve individual blog posts
+@app.route('/content/blog/<slug>.md')
+def get_blog(slug):
+    return send_from_directory('content/blog', f'{slug}.md')
 
 if __name__ == "__main__":
     import uvicorn
