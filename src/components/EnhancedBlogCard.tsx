@@ -1,24 +1,25 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { Link } from 'react-router-dom'
 import { BookmarkIcon, Clock, Share2 } from 'lucide-react'
-
-// Import your UI components here
-import { Card, CardContent, CardFooter, CardHeader } from "../components/ui/card"
-import { Button } from "../components/ui/button"
-import { Tooltip } from "../components/ui/tooltip"
+import { Card, CardContent, CardFooter, CardHeader } from "./ui/card"
+import { Button } from "./ui/button"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip"
 
 interface EnhancedBlogCardProps {
-  title: string
-  content: string
+  id: number;
+  title: string;
+  content: string;
   author: {
-    name: string
-    avatar?: string  // Make avatar optional
-  }
-  date: string
-  readTime?: string
-  category: string
-  image: string
-  slug: string
+    name: string;
+    avatar: string;
+    bio: string;
+  };
+  date: string;
+  readTime: string;
+  category: string;
+  image: string;
+  tags: string[];
+  slug: string;
 }
 
 // ... (keep other subcomponents like CategoryBadge, BlogTitle, AuthorInfo, etc.)
@@ -29,16 +30,13 @@ const CategoryBadge = ({ category }: { category: string }) => (
   </span>
 )
 
-const BlogTitle = ({ title }: { title: string }) => {
-  const slug = title.toLowerCase().replace(/[^\w ]+/g, '').replace(/ +/g, '-');
-  return (
-    <h3 className="text-xl font-bold leading-tight mb-2 mt-2 line-clamp-2">
-      <Link to={`/blog/${slug}`} className="hover:underline">
-        {title}
-      </Link>
-    </h3>
-  )
-}
+const BlogTitle = ({ title, slug }: { title: string; slug: string }) => (
+  <h3 className="text-xl font-bold leading-tight mb-2 mt-2 line-clamp-2">
+    <Link to={`/blog/${slug}`} className="hover:underline">
+      {title}
+    </Link>
+  </h3>
+)
 
 const BlogExcerpt = ({ content }: { content: string }) => {
   const truncatedContent = content.split(' ').slice(0, 30).join(' ') + '...'
@@ -71,31 +69,18 @@ const AuthorInfo = ({ author, date, readTime }: { author: { name: string; avatar
 
 // Removed BlogStats component since 'views' and 'comments' are no longer used
 
-const BookmarkButton = () => {
-  const [isBookmarked, setIsBookmarked] = useState(false)
-  return (
-    <Tooltip content={isBookmarked ? 'Remove from bookmarks' : 'Add to bookmarks'}>
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => setIsBookmarked(!isBookmarked)}
-      >
-        <BookmarkIcon
-          className={`h-4 w-4 ${isBookmarked ? 'fill-current text-blue-600' : ''}`}
-        />
-        <span className="sr-only">Bookmark</span>
-      </Button>
-    </Tooltip>
-  )
-}
+const BookmarkButton = () => (
+  <Button variant="ghost" size="icon">
+    <BookmarkIcon className="h-4 w-4" />
+    <span className="sr-only">Bookmark</span>
+  </Button>
+)
 
 const ShareButton = () => (
-  <Tooltip content="Share this post">
-    <Button variant="ghost" size="icon">
-      <Share2 className="h-4 w-4" />
-      <span className="sr-only">Share</span>
-    </Button>
-  </Tooltip>
+  <Button variant="ghost" size="icon">
+    <Share2 className="h-4 w-4" />
+    <span className="sr-only">Share</span>
+  </Button>
 )
 
 const EnhancedBlogCard: React.FC<EnhancedBlogCardProps> = ({
@@ -119,7 +104,7 @@ const EnhancedBlogCard: React.FC<EnhancedBlogCardProps> = ({
         <CategoryBadge category={category} />
       </div>
       <CardHeader>
-        <BlogTitle title={title} />
+        <BlogTitle title={title} slug={slug} />
         <BlogExcerpt content={content} />
       </CardHeader>
       <CardContent>
@@ -130,8 +115,26 @@ const EnhancedBlogCard: React.FC<EnhancedBlogCardProps> = ({
           Read More
         </Link>
         <div className="flex space-x-2">
-          <BookmarkButton />
-          <ShareButton />
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <BookmarkButton />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Bookmark this post</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ShareButton />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Share this post</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </CardFooter>
     </Card>

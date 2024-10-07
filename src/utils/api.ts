@@ -7,11 +7,14 @@ export interface BlogPost {
   date: string;
   author: {
     name: string;
-    avatar?: string;
+    avatar: string;
+    bio: string;
   };
   category: string;
   image: string;
-  readTime?: string;
+  readTime: string;
+  tags: string[];
+  slug: string; // Add this line
 }
 
 export const fetchBlogPosts = async (): Promise<BlogPost[]> => {
@@ -40,16 +43,19 @@ export const getBlogContent = async (slug: string) => {
     }
 
     return {
-      content: convertMarkdownToHTML(post.content),
+      content: await convertMarkdownToHTML(post.content),
       metadata: {
         title: post.title,
         date: post.date,
         author: {
           name: post.author.name,
           avatar: post.author.avatar || '',
+          bio: post.author.bio || '',
         },
         category: post.category,
         image: post.image,
+        readTime: post.readTime,
+        tags: post.tags || [],
       },
     };
   } catch (error) {
@@ -59,8 +65,8 @@ export const getBlogContent = async (slug: string) => {
 };
 
 // Helper function to convert Markdown to HTML
-const convertMarkdownToHTML = (markdown: string): string => {
-  return marked(markdown); // ✅ Use marked to convert markdown
+const convertMarkdownToHTML = async (markdown: string): Promise<string> => {
+  return await marked(markdown);
 };
 
 // Helper function to create a slug from a title

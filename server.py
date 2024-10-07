@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 import os
 import frontmatter
-from flask import Flask, send_from_directory
 from slugify import slugify  # ⬇️ Ensure slugify is imported
 
 app = FastAPI()
@@ -26,24 +26,33 @@ async def get_blog_posts():
             filepath = os.path.join(blog_dir, filename)
             with open(filepath, 'r', encoding='utf-8') as file:
                 post = frontmatter.load(file)
-                slug = slugify(post.metadata.get('title'))  # ✅ Generate slug from title
+                slug = slugify(post.metadata.get('title'))
                 posts.append({
                     'id': post.metadata.get('id'),
                     'title': post.metadata.get('title'),
-                    'slug': slug,  # ✅ Include slug
+                    'slug': slug,
                     'content': post.content,
                     'date': post.metadata.get('date'),
-                    'author': post.metadata.get('author'),
+                    'author': {
+                        'name': post.metadata.get('author', {}).get('name', ''),
+                        'avatar': post.metadata.get('author', {}).get('avatar', ''),
+                        'bio': post.metadata.get('author', {}).get('bio', ''),
+                    },
                     'readTime': post.metadata.get('readTime'),
                     'category': post.metadata.get('category'),
                     'image': post.metadata.get('image'),
+                    'tags': post.metadata.get('tags', []),
                 })
     return posts
 
 # Serve individual blog posts
-@app.route('/content/blog/<slug>.md')
-def get_blog(slug):
-    return send_from_directory('content/blog', f'{slug}.md')
+@app.get('/content/blog/{slug}.md')
+async def get_blog(slug: str):
+    blog_dir = 'content/blog'
+    file_path = os.path.join(blog_dir, f'{slug}.md')
+    if os.path.exists(file_path):
+        return FileResponse(file_path)
+    return {"error": "Blog post not found"}, 404
 
 if __name__ == "__main__":
     import uvicorn

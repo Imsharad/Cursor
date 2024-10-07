@@ -2,13 +2,6 @@ import React, { useState, useEffect } from 'react';
 import EnhancedBlogCard from '../components/EnhancedBlogCard';
 import { fetchBlogPosts, BlogPost } from '../utils/api';
 
-const slugify = (text: string) => {
-  return text
-    .toLowerCase()
-    .replace(/[^\w ]+/g, '')
-    .replace(/ +/g, '-');
-};
-
 const Blog: React.FC = () => {
   const [posts, setPosts] = useState<BlogPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,14 +36,7 @@ const Blog: React.FC = () => {
           {posts.map((post) => (
             <EnhancedBlogCard
               key={post.id}
-              title={post.title}
-              content={post.content}
-              author={post.author}
-              date={post.date}
-              readTime={post.readTime || '5 min read'}
-              category={post.category}
-              image={post.image}
-              slug={slugify(post.title)}
+              {...post}
             />
           ))}
         </div>
