@@ -9,6 +9,7 @@ import CourseSinglePage from './pages/CourseSinglePage';
 import Buy from './pages/Buy';
 import Contact from './pages/Contact';
 import About from './pages/About';
+import BlogPost from './pages/Blog/[slug]';
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
             <Route path="/buy" element={<Buy />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/about" element={<About />} />
+            <Route path="/blog/:slug" element={<BlogPost />} />
           </Routes>
         </main>
         <Footer />
