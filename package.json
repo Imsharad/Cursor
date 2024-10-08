@@ -22,7 +22,7 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
-    "framer-motion": "^10.16.4",
+    "framer-motion": "^10.18.0",
     "lucide-react": "^0.284.0",
     "marked": "^14.1.2",
     "next-mdx-remote": "^5.0.0",
