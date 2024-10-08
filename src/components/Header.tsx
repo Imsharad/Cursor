@@ -60,6 +60,7 @@ const Header: React.FC = () => {
             <Link to="/blog" className="text-gray-600 hover:text-blue-600" onClick={handleLinkClick}>Blog</Link>
             <Link to="/about" className="text-gray-600 hover:text-blue-600" onClick={handleLinkClick}>About</Link>
             <Link to="/contact" className="text-gray-600 hover:text-blue-600" onClick={handleLinkClick}>Contact</Link>
+            <Link to="/courses" className="hover:text-blue-600">Courses</Link>
           </nav>
           
           <div className="hidden md:block">
