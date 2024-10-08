@@ -1,11 +1,3 @@
-# course-hub-gen-ai
-
-[Edit in StackBlitz next generation editor ⚡️](https://stackblitz.com/~/github.com/Imsharad/course-hub-gen-ai)
-
-
-
-```cdk init app --language typescript```
-
 # Welcome to your CDK TypeScript project
 
 This is a blank project for CDK development with TypeScript.
