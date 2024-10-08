@@ -1,6 +1,6 @@
 import React from 'react';
 import { useParams } from 'react-router-dom';
-import CourseHeader from '../components/course/CourseHeader';
+import { CourseHeader } from "@/components/course/CourseHeader";
 import CourseOverview from '../components/course/CourseOverview';
 import CourseCurriculum from '../components/course/CourseCurriculum';
 import CourseTestimonials from '../components/course/CourseTestimonials';
@@ -72,7 +72,17 @@ const CourseSinglePage: React.FC = () => {
       <div className="container mx-auto px-4 py-12">
         <div className="grid gap-8 md:grid-cols-3">
           <div className="md:col-span-2 space-y-8">
-            <CourseHeader course={course} />
+            <CourseHeader
+              title={course.title}
+              description={course.description}
+              duration={course.duration}
+              modules={course.modules.length}
+              students={course.students}
+              language={course.language}
+              instructors={course.instructors}
+              level={course.level}
+              skills={course.skills || []} // Ensure this property exists in your course object
+            />
             <CourseOverview course={course} />
             <CourseCurriculum modules={modules} progress={33} />
             <CourseTestimonials course={course} />
