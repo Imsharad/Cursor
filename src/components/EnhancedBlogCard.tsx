@@ -68,19 +68,21 @@ const AuthorInfo = ({ author, date, readTime }: { author: { name: string; avatar
   </div>
 )
 
-const BookmarkButton = () => (
-  <Button variant="ghost" size="icon" className="text-gray-500 hover:text-blue-600 transition-colors duration-300">
+const BookmarkButton = React.forwardRef<HTMLButtonElement, React.ComponentPropsWithoutRef<typeof Button>>((props, ref) => (
+  <Button ref={ref} variant="ghost" size="icon" className="text-gray-500 hover:text-blue-600 transition-colors duration-300" {...props}>
     <BookmarkIcon className="h-5 w-5" />
     <span className="sr-only">Bookmark</span>
   </Button>
-)
+))
+BookmarkButton.displayName = 'BookmarkButton'
 
-const ShareButton = () => (
-  <Button variant="ghost" size="icon" className="text-gray-500 hover:text-blue-600 transition-colors duration-300">
+const ShareButton = React.forwardRef<HTMLButtonElement, React.ComponentPropsWithoutRef<typeof Button>>((props, ref) => (
+  <Button ref={ref} variant="ghost" size="icon" className="text-gray-500 hover:text-blue-600 transition-colors duration-300" {...props}>
     <Share2 className="h-5 w-5" />
     <span className="sr-only">Share</span>
   </Button>
-)
+))
+ShareButton.displayName = 'ShareButton'
 
 const EnhancedBlogCard: React.FC<EnhancedBlogCardProps> = ({
   title,
