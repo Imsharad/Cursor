@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "server": "python server.py"
+    "server": "python server.py",
+    "start": "python3 server.py"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.1.2",

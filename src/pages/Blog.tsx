@@ -1,21 +1,24 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import EnhancedBlogCard from '../components/EnhancedBlogCard';
 import { fetchBlogPosts, BlogPost } from '../utils/api';
 
 const Blog: React.FC = () => {
   const [posts, setPosts] = useState<BlogPost[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadPosts = async () => {
       try {
+        console.log('Starting to fetch blog posts...');
         const fetchedPosts = await fetchBlogPosts();
+        console.log('Fetched posts:', fetchedPosts);
         setPosts(fetchedPosts);
         setLoading(false);
       } catch (err) {
         console.error('Failed to fetch blog posts:', err);
-        setError('Failed to load blog posts. Please try again later.');
+        setError(err instanceof Error ? err.message : 'An unknown error occurred');
         setLoading(false);
       }
     };
@@ -35,10 +38,9 @@ const Blog: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {posts.map((post) => (
-              <EnhancedBlogCard
-                key={post.id}
-                {...post}
-              />
+              <Link to={`/blog/${post.slug}`} key={post.id}>
+                <EnhancedBlogCard {...post} />
+              </Link>
             ))}
           </div>
         )}

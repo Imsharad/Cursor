@@ -2,6 +2,12 @@
 
 [Edit in StackBlitz next generation editor ⚡️](https://stackblitz.com/~/github.com/Imsharad/course-hub-gen-ai)
 
+## Quick Start
+
+- **Development**: Run `./start.sh` to activate the environment, install dependencies, and start both backend and frontend.
+- **Production**: Deploy on Railway using the `railway.toml` configuration. Railway will build the frontend and start the application.
+- **Local Testing**: Build the frontend with `npm run build`, then start the server with `npm run start` to test the production build locally.
+
 ## Development
 
 To run the project in development mode:

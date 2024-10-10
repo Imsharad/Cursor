@@ -1,6 +1,6 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
-import { BookmarkIcon, Clock, Share2, CalendarIcon, UserIcon } from 'lucide-react'
+import { BookmarkIcon, Clock, Share2, CalendarIcon } from 'lucide-react'
 import { Card, CardContent, CardFooter, CardHeader } from "./ui/card"
 import { Button } from "./ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip"
@@ -41,9 +41,12 @@ const BlogTitle = ({ title, slug }: { title: string; slug: string }) => (
   </h3>
 )
 
-const BlogExcerpt = ({ content }: { content: string }) => {
-  const truncatedContent = content.split(' ').slice(0, 25).join(' ') + '...'
-  return <p className="text-gray-600 dark:text-gray-300 line-clamp-3">{truncatedContent}</p>
+const BlogExcerpt = ({ content }: { content: string | undefined }) => {
+  if (!content) {
+    return <p className="text-gray-600 dark:text-gray-300 line-clamp-3">No content available</p>;
+  }
+  const truncatedContent = content.split(' ').slice(0, 25).join(' ') + '...';
+  return <p className="text-gray-600 dark:text-gray-300 line-clamp-3">{truncatedContent}</p>;
 }
 
 const AuthorInfo = ({ author, date, readTime }: { author: { name: string; avatar?: string }; date: string; readTime?: string }) => (

@@ -9,7 +9,7 @@ import CourseSinglePage from './pages/CourseSinglePage';
 import Buy from './pages/Buy';
 import Contact from './pages/Contact';
 import About from './pages/About';
-import BlogPost from './pages/Blog/[slug]';
+import BlogPost from './pages/Blog/[slug]'; // Update this line
 
 function App() {
   return (
