@@ -30,6 +30,10 @@ done
 # Wait for a moment to ensure the backend has started
 sleep 5
 
+# Clear Vite's cache
+echo "Clearing Vite's cache..."
+npm run clean:cache
+
 # Start the Vite development server
 echo "Starting Vite development server..."
 npm run dev

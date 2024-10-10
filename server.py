@@ -3,18 +3,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import os
 import frontmatter
-from slugify import slugify  # ⬇️ Ensure slugify is imported
+from slugify import slugify
+from mangum import Mangum
 
 app = FastAPI()
+
+# Get allowed origins from environment variable
+allowed_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins (only for development/testing)
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Make sure you're using environment variables for sensitive information
+CONTENT_BUCKET = os.environ.get('CONTENT_BUCKET')
 
 # Read blog posts from Markdown files
 @app.get("/api/blog-posts")
@@ -53,6 +60,9 @@ async def get_blog(slug: str):
     if os.path.exists(file_path):
         return FileResponse(file_path)
     return {"error": "Blog post not found"}, 404
+
+# Lambda handler
+handler = Mangum(app)
 
 if __name__ == "__main__":
     import uvicorn

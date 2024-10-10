@@ -1,5 +1,8 @@
 import { marked } from 'marked'; // ⬇️ Import marked for markdown conversion
 
+// Update the API_BASE_URL to use an environment variable
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
 export interface BlogPost {
   id: number;
   title: string;
@@ -17,8 +20,9 @@ export interface BlogPost {
   slug: string; // Add this line
 }
 
+// Use this API_BASE_URL in your fetch calls
 export const fetchBlogPosts = async (): Promise<BlogPost[]> => {
-  const response = await fetch('http://localhost:8000/api/blog-posts');
+  const response = await fetch(`${API_BASE_URL}/api/blog-posts`);
   if (!response.ok) {
     throw new Error('Failed to fetch blog posts');
   }

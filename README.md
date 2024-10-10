@@ -2,6 +2,7 @@
 
 [Edit in StackBlitz next generation editor ⚡️](https://stackblitz.com/~/github.com/Imsharad/course-hub-gen-ai)
 
+<<<<<<< HEAD
 ## Development
 
 To run the project in development mode:
@@ -57,3 +58,23 @@ To test the production build locally:
    ```
 
 This will start the FastAPI backend and serve the built frontend files.
+=======
+
+
+```cdk init app --language typescript```
+
+# Welcome to your CDK TypeScript project
+
+This is a blank project for CDK development with TypeScript.
+
+The `cdk.json` file tells the CDK Toolkit how to execute your app.
+
+## Useful commands
+
+* `npm run build`   compile typescript to js
+* `npm run watch`   watch for changes and compile
+* `npm run test`    perform the jest unit tests
+* `npx cdk deploy`  deploy this stack to your default AWS account/region
+* `npx cdk diff`    compare deployed stack with current state
+* `npx cdk synth`   emits the synthesized CloudFormation template
+>>>>>>> 49e9bdb75d0294d1fd7c4a251cfa45a5c074f6cd

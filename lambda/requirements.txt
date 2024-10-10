@@ -1,0 +1,5 @@
+fastapi
+mangum
+python-frontmatter
+python-slugify
+boto3
