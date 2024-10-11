@@ -1,13 +1,7 @@
-<<<<<<< HEAD
 fastapi==0.103.0
 uvicorn==0.22.0
 pydantic==2.3.0
 python-frontmatter==1.0.0
 python-slugify==8.0.1
-=======
-fastapi
 mangum
-python-frontmatter
-python-slugify
 boto3
->>>>>>> 49e9bdb75d0294d1fd7c4a251cfa45a5c074f6cd

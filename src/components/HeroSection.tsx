@@ -52,7 +52,7 @@ const HeroSection: React.FC = () => {
             transition={{ duration: 0.8, delay: 0.2 }}
           >
             <img
-              src="/orange.png"
+              src="/assets/images/orange.png"  // Updated path
               alt="AI-powered coding"
               className="w-full h-auto rounded-2xl shadow-2xl"
             />

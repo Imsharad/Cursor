@@ -2,7 +2,18 @@
 
 [Edit in StackBlitz next generation editor ⚡️](https://stackblitz.com/~/github.com/Imsharad/course-hub-gen-ai)
 
-<<<<<<< HEAD
+## Quick Start
+
+- **Development**: Run `./start.sh` to activate the environment, install dependencies, and start both backend and frontend.
+- **Production**: Deploy on Railway using the `railway.toml` configuration. Railway will build the frontend and start the application.
+- **Local Testing**: Build the frontend with `npm run build`, then start the server with `npm run start` to test the production build locally.
+
+## Quick Start
+
+- **Development**: Run `./start.sh` to activate the environment, install dependencies, and start both backend and frontend.
+- **Production**: Deploy on Railway using the `railway.toml` configuration. Railway will build the frontend and start the application.
+- **Local Testing**: Build the frontend with `npm run build`, then start the server with `npm run start` to test the production build locally.
+
 ## Development
 
 To run the project in development mode:
@@ -58,23 +69,58 @@ To test the production build locally:
    ```
 
 This will start the FastAPI backend and serve the built frontend files.
-=======
 
+## Deploying to Railway
 
-```cdk init app --language typescript```
+To deploy this application to Railway:
 
-# Welcome to your CDK TypeScript project
+1. Sign up for a Railway account at https://railway.app/
+2. Install the Railway CLI: `npm i -g @railway/cli`
+3. Login to Railway:
+   ```
+   railway login
+   ```
+4. Initialize Railway in your project (if not already done):
+   ```
+   railway init
+   ```
+5. Link your project (if it already exists on Railway):
+   ```
+   railway link
+   ```
+6. Set environment variables:
+   ```
+   railway variables set NODE_ENV=production
+   railway variables set ALLOWED_ORIGINS=https://geometrik-production.up.railway.app
+   ```
+7. Deploy your application:
+   ```
+   railway up
+   ```
+8. Generate a domain for your service:
+   ```
+   railway domain
+   ```
+   This will create a URL for your application. In this case:
+   https://geometrik-production.up.railway.app
 
-This is a blank project for CDK development with TypeScript.
+9. View your application logs:
+   ```
+   railway logs
+   ```
+10. Open your project dashboard:
+    ```
+    railway open
+    ```
 
-The `cdk.json` file tells the CDK Toolkit how to execute your app.
+For automatic deployments, connect your GitHub repository in the Railway dashboard.
 
-## Useful commands
+## Useful Railway Commands
 
-* `npm run build`   compile typescript to js
-* `npm run watch`   watch for changes and compile
-* `npm run test`    perform the jest unit tests
-* `npx cdk deploy`  deploy this stack to your default AWS account/region
-* `npx cdk diff`    compare deployed stack with current state
-* `npx cdk synth`   emits the synthesized CloudFormation template
->>>>>>> 49e9bdb75d0294d1fd7c4a251cfa45a5c074f6cd
+- List all projects: `railway list`
+- Show project status: `railway status`
+- Change environment: `railway environment`
+- Run a local command with Railway variables: `railway run <command>`
+- Open a shell with Railway variables: `railway shell`
+- View current variables: `railway variables`
+- Set a new variable: `railway variables set KEY=VALUE`

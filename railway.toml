@@ -1,0 +1,35 @@
+# Build configuration
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+# Deployment configuration
+[deploy]
+startCommand = "python3 server.py"
+healthcheckPath = "/"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
+
+# Environment variables
+[variables]
+NODE_ENV = "production"
+ALLOWED_ORIGINS = "https://${RAILWAY_STATIC_URL}"
+
+# Port configuration
+[[services]]
+name = "web"
+internal_port = 8000
+protocol = "http"
+
+# Static file serving
+[[mounts]]
+source = "/app/dist"
+destination = "/app/dist"
+
+[[mounts]]
+source = "/app/public"
+destination = "/app/public"
+
+[[mounts]]
+source = "/app/content"
+destination = "/app/content"

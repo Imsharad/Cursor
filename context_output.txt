@@ -1,0 +1,4030 @@
+
+
+--- start_docker.sh ---
+
+#!/bin/bash
+
+# Colors for output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+# Function to print messages
+print_message() {
+    echo -e "${GREEN}$1${NC}"
+}
+
+# Function to print errors
+print_error() {
+    echo -e "${RED}$1${NC}"
+}
+
+# Check if Node.js is installed
+if ! command -v node &> /dev/null; then
+    print_error "Node.js is not installed. Please install Node.js and try again."
+    exit 1
+fi
+
+# Check if npm is installed
+if ! command -v npm &> /dev/null; then
+    print_error "npm is not installed. Please install npm and try again."
+    exit 1
+fi
+
+# Build the frontend
+print_message "Building the frontend..."
+if npm run build; then
+    print_message "Frontend built successfully!"
+else
+    print_error "Failed to build the frontend. Please check the error messages above."
+    exit 1
+fi
+
+# Check if Docker is installed
+if ! command -v docker &> /dev/null; then
+    print_error "Docker is not installed. Please install Docker and try again."
+    exit 1
+fi
+
+# Check if docker-compose is installed
+if ! command -v docker-compose &> /dev/null; then
+    print_error "Docker Compose is not installed. Please install Docker Compose and try again."
+    exit 1
+fi
+
+# Build and start the containers
+print_message "Building and starting Docker containers..."
+if docker-compose up --build -d; then
+    print_message "Docker containers are up and running!"
+else
+    print_error "Failed to start Docker containers. Please check the error messages above."
+    exit 1
+fi
+
+# Wait for the application to start and find the correct port
+print_message "Waiting for the application to start..."
+for i in {1..30}; do
+    for port in {8000..8100}; do
+        if curl -s http://localhost:$port &> /dev/null; then
+            print_message "Application is now accessible at http://localhost:$port"
+            exit 0
+        fi
+    done
+    sleep 1
+done
+
+print_error "Application did not start within the expected time. Please check the Docker logs."
+print_message "You can view the logs by running: docker-compose logs"
+exit 1
+
+--- tsconfig.node.json ---
+
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["vite.config.ts"]
+}
+
+
+--- server.py ---
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+import os
+import frontmatter
+from slugify import slugify
+import logging
+import uvicorn
+import socket
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI()
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins (only for development/testing)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Read blog posts from Markdown files
+@app.get("/api/blog-posts")
+async def get_blog_posts():
+    logger.info("Received request for /api/blog-posts")
+    blog_dir = 'content/blog'
+    logger.info(f"Checking directory: {os.path.abspath(blog_dir)}")
+    if not os.path.exists(blog_dir):
+        logger.error(f"Directory {blog_dir} does not exist")
+        raise HTTPException(status_code=404, detail="Blog directory not found")
+    files = os.listdir(blog_dir)
+    logger.info(f"Found files: {files}")
+    posts = []
+    for filename in files:
+        if filename.endswith('.md'):
+            filepath = os.path.join(blog_dir, filename)
+            logger.info(f"Processing file: {filepath}")
+            try:
+                with open(filepath, 'r', encoding='utf-8') as file:
+                    post = frontmatter.load(file)
+                    slug = slugify(post.metadata.get('title'))
+                    posts.append({
+                        'id': post.metadata.get('id', ''),
+                        'title': post.metadata.get('title', ''),
+                        'slug': slug,
+                        'date': post.metadata.get('date', ''),
+                        'author': post.metadata.get('author', {'name': '', 'avatar': '', 'bio': ''}),
+                        'category': post.metadata.get('category', ''),
+                        'image': post.metadata.get('image', ''),
+                        'readTime': post.metadata.get('readTime', ''),
+                        'tags': post.metadata.get('tags', []),
+                    })
+                logger.info(f"Successfully processed {filename}")
+            except Exception as e:
+                logger.error(f"Error processing {filename}: {str(e)}")
+    logger.info(f"Returning {len(posts)} posts")
+    return posts
+
+# Serve individual blog posts
+@app.get('/api/blog-posts/{slug}')
+async def get_blog_post(slug: str):
+    logger.info(f"Received request for blog post with slug: {slug}")
+    blog_dir = 'content/blog'
+    for filename in os.listdir(blog_dir):
+        if filename.endswith('.md'):
+            filepath = os.path.join(blog_dir, filename)
+            with open(filepath, 'r', encoding='utf-8') as file:
+                post = frontmatter.load(file)
+                if slugify(post.metadata.get('title')) == slug:
+                    logger.info(f"Found matching post: {filename}")
+                    return {
+                        'id': post.metadata.get('id'),
+                        'title': post.metadata.get('title'),
+                        'content': post.content,
+                        'date': post.metadata.get('date'),
+                        'author': post.metadata.get('author'),
+                        'category': post.metadata.get('category'),
+                        'image': post.metadata.get('image'),
+                        'readTime': post.metadata.get('readTime'),
+                        'tags': post.metadata.get('tags', []),
+                        'slug': slug
+                    }
+    logger.warning(f"No post found for slug: {slug}")
+    raise HTTPException(status_code=404, detail="Blog post not found")
+
+# Add a test endpoint
+@app.get("/api/test")
+async def test_endpoint():
+    return {"message": "API is working"}
+
+# Mount the static files directory
+app.mount("/", StaticFiles(directory="dist", html=True), name="static")
+
+# Catch-all route for client-side routing
+@app.get("/{full_path:path}")
+async def serve_app(full_path: str):
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="API route not found")
+    return FileResponse("dist/index.html")
+
+def find_free_port(start_port, max_port=65535):
+    for port in range(start_port, max_port + 1):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.bind(('', port))
+            s.close()
+            return port
+        except OSError:
+            continue
+    return None
+
+if __name__ == "__main__":
+    start_port = int(os.environ.get("PORT", 8000))
+    max_port = start_port + 100  # Try up to 100 ports after the start port
+    
+    free_port = find_free_port(start_port, max_port)
+    
+    if free_port is None:
+        logger.error(f"No free ports found between {start_port} and {max_port}")
+        exit(1)
+    
+    logger.info(f"Starting server on port {free_port}")
+    uvicorn.run(app, host="0.0.0.0", port=free_port)
+
+--- index.html ---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite + React + TS</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
+
+--- tailwind.config.js ---
+
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  darkMode: ["class"],
+  content: [
+    './pages/**/*.{ts,tsx}',
+    './components/**/*.{ts,tsx}',
+    './app/**/*.{ts,tsx}',
+    './src/**/*.{ts,tsx}',
+  ],
+  theme: {
+    container: {
+      center: true,
+      padding: "2rem",
+      screens: {
+        "2xl": "1400px",
+      },
+    },
+    extend: {
+      typography: (theme) => ({
+        DEFAULT: {
+          css: {
+            // ... (keep the existing typography styles)
+          },
+        },
+      }),
+    },
+  },
+  plugins: [
+    require('@tailwindcss/typography'),
+  ],
+}
+
+--- requirements.txt ---
+
+fastapi==0.103.0
+uvicorn==0.22.0
+pydantic==2.3.0
+python-frontmatter==1.0.0
+python-slugify==8.0.1
+
+--- tsconfig.app.json ---
+
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}
+
+
+--- Dockerfile ---
+
+# Use an official Node runtime as the base image
+FROM node:18 AS build
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Copy package.json and package-lock.json
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy the rest of the application code
+COPY . .
+
+# Build the frontend
+RUN npm run build
+
+# Final stage
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/public ./public
+COPY --from=build /app/content ./content
+COPY server.py requirements.txt ./
+
+RUN pip install --upgrade pip && pip install -r requirements.txt
+RUN chmod -R 755 ./content
+
+EXPOSE 8000-8100
+
+CMD ["python3", "server.py"]
+
+--- blog_posts.csv ---
+
+id,title,content,date
+1,10 Tips for Successful Online Learning,"Online learning can be challenging, but with these tips, you'll be set up for success. From creating a dedicated study space to managing your time effectively, we cover all the essentials.",2024-03-01
+2,The Future of Education: AI and Machine Learning,"Explore how artificial intelligence and machine learning are revolutionizing education. From personalized learning paths to intelligent tutoring systems, the future of education is here.",2024-03-05
+3,How to Build a Successful Career in Tech,"The tech industry is booming, but how do you break in and build a successful career? We share insights from industry experts and provide a roadmap for your tech career journey.",2024-03-10
+4,The Importance of Soft Skills in the Workplace,"While technical skills are crucial, soft skills can make or break your career. Learn why communication, teamwork, and adaptability are more important than ever in today's job market.",2024-03-15
+5,Mastering the Art of Public Speaking,"Public speaking is a valuable skill in any profession. Discover techniques to overcome stage fright, engage your audience, and deliver powerful presentations that leave a lasting impact.",2024-03-20
+
+--- stop_docker.sh ---
+
+#!/bin/bash
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+print_message() {
+    echo -e "${GREEN}$1${NC}"
+}
+
+print_error() {
+    echo -e "${RED}$1${NC}"
+}
+
+print_message "Stopping Docker containers..."
+if docker-compose down; then
+    print_message "Docker containers have been stopped and removed."
+else
+    print_error "Failed to stop Docker containers. Please check the error messages above."
+    exit 1
+fi
+
+--- vite.config.js ---
+
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import path from 'path'
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      }
+    }
+  }
+})
+
+--- README.md ---
+
+# course-hub-gen-ai
+
+[Edit in StackBlitz next generation editor ⚡️](https://stackblitz.com/~/github.com/Imsharad/course-hub-gen-ai)
+
+## Quick Start
+
+- **Development**: Run `./start.sh` to activate the environment, install dependencies, and start both backend and frontend.
+- **Production**: Deploy on Railway using the `railway.toml` configuration. Railway will build the frontend and start the application.
+- **Local Testing**: Build the frontend with `npm run build`, then start the server with `npm run start` to test the production build locally.
+
+## Development
+
+To run the project in development mode:
+
+1. Start the development environment:
+   ```
+   ./start.sh
+   ```
+   This script activates the virtual environment, installs dependencies, starts the FastAPI backend, and launches the Vite development server.
+
+2. Alternatively, you can start the backend and frontend separately:
+   ```
+   # Terminal 1 (Backend)
+   npm run server
+
+   # Terminal 2 (Frontend)
+   npm run dev
+   ```
+
+## Production
+
+For production deployment (e.g., on Railway):
+
+1. Ensure your code is committed and pushed to your Git repository.
+
+2. Connect your repository to Railway (if not already done).
+
+3. Railway will automatically detect the `railway.toml` file and use it for deployment configuration.
+
+4. To manually trigger a deployment, you can use the Railway CLI:
+   ```
+   railway up
+   ```
+
+5. Railway will execute the following steps based on your configuration:
+   - Build the frontend: `npm run build`
+   - Start the application: `npm run start`
+
+Remember to set up your environment variables in the Railway dashboard, especially `VITE_API_URL` for the frontend service.
+
+## Local Production Testing
+
+To test the production build locally:
+
+1. Build the frontend:
+   ```
+   npm run build
+   ```
+
+2. Start the server (this will run both backend and serve the frontend):
+   ```
+   npm run start
+   ```
+
+This will start the FastAPI backend and serve the built frontend files.
+
+--- context.py ---
+
+import os
+
+def download_repo_to_file():
+    # Get the current working directory (root of the project)
+    root_dir = os.getcwd()
+    
+    # Initialize an empty string to store file contents
+    all_contents = ""
+    
+    # Blacklist of directories and files to skip
+    blacklist = ['node_modules', '.git', '__pycache__', '.vscode', '.idea', 'dist']
+    
+    # List of important files to include
+    important_files = ['Dockerfile', 'docker-compose.yml', '.gitignore', 'requirements.txt', 'start_docker.sh', 'stop_docker.sh']
+    
+    # Walk through all directories and files
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        # Remove blacklisted directories
+        dirnames[:] = [d for d in dirnames if d not in blacklist]
+        
+        for filename in filenames:
+            # Skip blacklisted files and directories
+            if any(item in dirpath.split(os.sep) for item in blacklist):
+                continue
+            
+            file_path = os.path.join(dirpath, filename)
+            
+            # Skip the output file itself to avoid infinite loop
+            if filename == "context_output.txt":
+                continue
+            
+            # Include important files and skip non-critical files
+            if filename not in important_files and (filename.endswith(('.pyc', '.log', '.tmp', '.cache')) or filename in ['package.json', 'package-lock.json']):
+                continue
+            
+            # Add file path as a header (relative to root)
+            relative_path = os.path.relpath(file_path, root_dir)
+            all_contents += f"\n\n--- {relative_path} ---\n\n"
+            
+            # Try to read the file contents
+            try:
+                with open(file_path, 'r', encoding='utf-8') as file:
+                    all_contents += file.read()
+            except Exception as e:
+                all_contents += f"Error reading file: {str(e)}\n"
+    
+    # Write all contents to context_output.txt
+    with open("context_output.txt", 'w', encoding='utf-8') as output_file:
+        output_file.write(all_contents)
+
+    print("Repository contents have been saved to context_output.txt")
+
+# Call the function to download the repo
+download_repo_to_file()
+
+
+--- .gitignore ---
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+__pycache__
+*.pyc
+.env
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+
+--- components 2.json ---
+
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "default",
+  "rsc": true,
+  "tsx": true,
+  "tailwind": {
+    "config": "tailwind.config.ts",
+    "css": "src/app/globals.css",
+    "baseColor": "neutral",
+    "cssVariables": false
+  },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils"
+  }
+}
+
+--- components.json ---
+
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "default",
+  "rsc": true,
+  "tsx": true,
+  "tailwind": {
+    "config": "tailwind.config.ts",
+    "css": "src/app/globals.css",
+    "baseColor": "neutral",
+    "cssVariables": false
+  },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils"
+  }
+}
+
+--- tsconfig.json ---
+
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ],
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src"]
+}
+
+
+--- docker-compose.yml ---
+
+version: '3'
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000-8100:8000-8100"
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - ./public:/app/public
+      - ./dist:/app/dist
+      - ./content:/app/content  # Add this line
+
+--- eslint.config.js ---
+
+import js from '@eslint/js'
+import globals from 'globals'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+import tseslint from 'typescript-eslint'
+
+export default tseslint.config(
+  { ignores: ['dist'] },
+  {
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.browser,
+    },
+    plugins: {
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      'react-refresh/only-export-components': [
+        'warn',
+        { allowConstantExport: true },
+      ],
+    },
+  },
+)
+
+
+--- .env.example ---
+
+# API URL
+VITE_API_URL=http://localhost:8000
+
+# Database configuration (if applicable)
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=your_database_name
+DB_USER=your_database_user
+DB_PASSWORD=your_database_password
+
+# JWT Secret (if using authentication)
+JWT_SECRET=your_jwt_secret_key
+
+# Other configuration
+NODE_ENV=development
+PORT=3000
+
+# Railway specific variables (these will be set automatically by Railway)
+RAILWAY_STATIC_URL=
+
+# Any other environment-specific variables your app might need
+
+--- vite.config.ts ---
+
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { fileURLToPath } from 'url'
+import { dirname, resolve } from 'path'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, './src'),
+    },
+  },
+})
+
+
+--- postcss.config.js ---
+
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+
+--- start.sh ---
+
+#!/bin/bash
+
+# Activate the virtual environment using the full path
+echo "Activating Python virtual environment..."
+source ~/myvenv/bin/activate
+
+# Update pip and install/upgrade dependencies
+echo "Updating pip and installing/upgrading Python dependencies..."
+pip install --upgrade pip
+pip install --upgrade -r requirements.txt
+
+# Install Node.js dependencies
+echo "Installing Node.js dependencies..."
+npm install
+
+# Start the FastAPI backend with fallback ports
+echo "Starting FastAPI backend..."
+for port in 8000 8001 8002; do
+    uvicorn server:app --reload --port $port &
+    PID=$!
+    sleep 2
+    if ps -p $PID > /dev/null; then
+        echo "FastAPI backend started on port $port"
+        break
+    else
+        echo "Port $port is in use, trying next port..."
+    fi
+done
+
+# Wait for a moment to ensure the backend has started
+sleep 5
+
+# Start the Vite development server
+echo "Starting Vite development server..."
+npm run dev
+
+# This will keep the script running
+wait
+
+# Deactivate the virtual environment when done
+deactivate
+
+--- .bolt/modified.json ---
+
+[]
+
+--- .bolt/config.json ---
+
+{
+  "template": "bolt-vite-react-ts"
+}
+
+
+--- .bolt/prompt ---
+
+For all designs I ask you to make, have them be beautiful, not cookie cutter. Make webpages that are fully featured and worthy for production.
+
+By default, this template supports JSX syntax with Tailwind CSS classes, React hooks, and Lucide React for icons. Do not install other packages for UI themes, icons, etc unless absolutely necessary or I request them.
+
+Use icons from lucide-react for logos.
+
+Use stock photos from unsplash where appropriate, only valid URLs you know exist. Do not download the images, only link to them in image tags.
+
+
+
+--- content/blog/how-to-build-a-successful-career-in-tech.md ---
+
+---
+id: 3
+title: "How to Build a Successful Career in Tech"
+date: "2024-03-10"
+author:
+  name: "Alex Rivera"
+  avatar: "https://example.com/avatars/alex-rivera.jpg"
+  bio: "Alex Rivera is a seasoned tech professional with over 15 years of experience in software development and team leadership."
+readTime: "25 min read"
+category: "Career"
+image: "https://images.unsplash.com/photo-1522071820081-009f0129c71c"
+tags: ["career", "technology", "professional development", "skills", "networking"]
+---
+
+<p className="lead">
+  The tech industry is a dynamic and exciting field, offering countless opportunities for those willing to dive in. Whether you're a recent graduate or considering a career change, this comprehensive guide will help you navigate the path to a successful tech career. From identifying your passion to embracing lifelong learning, we'll cover everything you need to know to thrive in this fast-paced and ever-evolving industry.
+</p>
+
+## 1. Identify Your Passion 🔍
+
+<p>
+  The tech world is vast, with numerous specializations. It's crucial to find an area that not only aligns with your skills but also ignites your passion. Start by exploring different areas and understanding what each entails:
+</p>
+
+<ul className="list-disc pl-6 space-y-2">
+  <li>Software Development: This field involves creating, testing, and maintaining software applications. It's ideal for those who enjoy problem-solving and have a knack for logical thinking.</li>
+  <li>Data Science and Analytics: If you're fascinated by numbers and enjoy deriving insights from large datasets, this could be your calling. Data scientists use statistical methods and machine learning to extract meaningful information from data.</li>
+  <li>Cybersecurity: With the increasing number of cyber threats, this field is more important than ever. It involves protecting systems, networks, and programs from digital attacks.</li>
+  <li>Cloud Computing: This area focuses on delivering computing services over the internet, including servers, storage, databases, networking, software, and more.</li>
+  <li>Artificial Intelligence and Machine Learning: These cutting-edge fields involve creating systems that can learn and make decisions with minimal human intervention.</li>
+  <li>UX/UI Design: If you have a creative streak and enjoy enhancing user experiences, this field combines design principles with technology to create intuitive and visually appealing interfaces.</li>
+  <li>DevOps: This practice combines software development (Dev) and IT operations (Ops) to shorten the systems development life cycle while delivering features, fixes, and updates frequently in close alignment with business objectives.</li>
+  <li>Blockchain Technology: This emerging field deals with decentralized, distributed ledger technology that's changing how we think about digital transactions and data storage.</li>
+  <li>Internet of Things (IoT): IoT involves connecting everyday devices to the internet, allowing them to send and receive data. It's a growing field with applications in smart homes, wearables, and industrial settings.</li>
+  <li>Augmented and Virtual Reality (AR/VR): These technologies are revolutionizing how we interact with digital content, with applications ranging from gaming to education and healthcare.</li>
+</ul>
+
+<blockquote className="border-l-4 border-blue-500 pl-4 italic my-4">
+  <p><strong>Pro Tip:</strong> Attend tech meetups, webinars, and conferences to get a feel for different specializations. Don't be afraid to experiment with various areas before settling on one. Many successful tech professionals have pivoted multiple times in their careers before finding their true passion. Remember, your interests may evolve over time, and that's perfectly normal in this dynamic industry.</p>
+</blockquote>
+
+## 2. Develop a Strong Foundation 💪
+
+<p>
+  Regardless of your chosen path, certain skills are universally valuable in tech. Building a strong foundation in these areas will set you up for success and make it easier to adapt to new technologies and methodologies as they emerge:
+</p>
+
+### Programming Basics 💻
+
+<p>
+  Learning to code is essential in most tech careers. While you don't need to master every programming language out there, having a solid understanding of at least one or two will give you a significant advantage. Here are some popular languages and their primary use cases:
+</p>
+
+<ul className="list-disc pl-6 space-y-2">
+  <li>Python: Known for its simplicity and readability, Python is a versatile language used in web development, data science, artificial intelligence, and more. It's an excellent choice for beginners due to its gentle learning curve.</li>
+  <li>JavaScript: As the language of the web, JavaScript is essential for front-end development. With frameworks like Node.js, it's also used for back-end development, making it a full-stack language.</li>
+  <li>Java: This object-oriented language is widely used in enterprise environments, Android app development, and building large-scale distributed systems.</li>
+  <li>C++: Known for its performance and efficiency, C++ is commonly used in system programming, game development, and other resource-intensive applications.</li>
+  <li>Swift: Developed by Apple, Swift is the go-to language for iOS app development. It's known for its safety features and modern syntax.</li>
+</ul>
+
+<p>
+  Remember, the goal isn't to become an expert in all these languages, but to understand programming concepts and be able to pick up new languages as needed. Focus on mastering one language initially, and you'll find it easier to learn others as your career progresses.
+</p>
+
+### Version Control 🔄
+
+<p>
+  Version control systems are crucial for managing code changes and collaborating with other developers. Git is the most widely used version control system, and GitHub is a popular platform for hosting Git repositories. Mastering Git and GitHub will allow you to:
+</p>
+
+<ul className="list-disc pl-6 space-y-2">
+  <li>Track changes to your code over time</li>
+  <li>Collaborate effectively with other developers on projects</li>
+  <li>Contribute to open-source projects</li>
+  <li>Showcase your work to potential employers</li>
+  <li>Revert to previous versions of your code if needed</li>
+</ul>
+
+<p>
+  Take the time to learn Git commands and best practices for commit messages, branching strategies, and pull requests. These skills will be invaluable throughout your tech career.
+</p>
+
+### Problem-Solving Skills 🧩
+
+<p>
+  At its core, technology is about solving problems. Developing strong problem-solving skills will make you a more effective and valuable tech professional. Here are some strategies to enhance your problem-solving abilities:
+</p>
+
+<ul className="list-disc pl-6 space-y-2">
+  <li>Break down complex problems into smaller, manageable parts</li>
+  <li>Practice algorithmic thinking and data structures</li>
+  <li>Learn to approach problems from multiple angles</li>
+  <li>Develop a systematic approach to debugging</li>
+  <li>Cultivate patience and persistence when faced with challenging issues</li>
+</ul>
+
+<p>
+  Regularly practicing coding challenges on platforms like LeetCode, HackerRank, or Project Euler can help sharpen your problem-solving skills and prepare you for technical interviews.
+</p>
+
+### Continuous Learning 📚
+
+<p>
+  The tech industry evolves at a breakneck pace, with new technologies, frameworks, and methodologies emerging constantly. To stay relevant and competitive, you must cultivate a growth mindset and commit to lifelong learning. Here are some strategies to stay updated:
+</p>
+
+<ul className="list-disc pl-6 space-y-2">
+  <li>Set aside dedicated time each week for learning and skill development</li>
+  <li>Follow industry leaders and influential tech blogs</li>
+  <li>Participate in online courses and obtain relevant certifications</li>
+  <li>Attend workshops, webinars, and conferences</li>
+  <li>Experiment with new technologies through personal projects</li>
+  <li>Join professional organizations and local tech communities</li>
+</ul>
+
+<p>
+  Remember, the goal isn't to chase every new trend, but to stay informed about developments in your field and adjacent areas. This knowledge will help you make informed decisions about which skills to develop further and how to position yourself in the job market.
+</p>
+
+## 3. Build Your Portfolio 🏗️
+
+<p>
+  In the tech industry, actions speak louder than words. A strong portfolio showcasing your skills and projects is often more valuable than a list of qualifications on a resume. Here's how you can build a compelling portfolio:
+</p>
+
+<ul className="list-disc pl-6 space-y-2">
+  <li>Contribute to open-source projects: This demonstrates your ability to work with existing codebases and collaborate with other developers. Start by looking for "good first issue" tags on GitHub repositories.</li>
+  <li>Develop personal projects: Create applications or tools that solve real-world problems. This shows initiative and gives you complete creative control. Consider building a personal website, a mobile app, or a data visualization project.</li>
+  <li>Participate in hackathons and coding challenges: These events provide opportunities to work on innovative projects under time constraints, often in collaboration with others. They're great for networking and can result in impressive portfolio pieces.</li>
+  <li>Write technical blog posts: Sharing your knowledge through blog posts or tutorials demonstrates your expertise and communication skills. It also helps solidify your own understanding of topics.</li>
+  <li>Create a GitHub profile: Use GitHub to showcase your projects and contributions. Make sure your repositories are well-documented with clear README files.</li>
+  <li>Contribute to tech communities: Answer questions on Stack Overflow, participate in forums, or create educational content on platforms like YouTube. This shows your willingness to help others and engage with the tech community.</li>
+</ul>
+
+<p>
+  When building your portfolio, focus on quality over quantity. A few well-executed projects that demonstrate your skills and problem-solving abilities are more valuable than numerous half-finished or poorly documented projects. Make sure to include detailed descriptions of your role in each project, the technologies used, and the problems you solved.
+</p>
+
+## 4. Network and Build Relationships 🤝
+
+<p>
+  Networking is a crucial aspect of building a successful tech career. It can lead to job opportunities, collaborations, mentorship, and staying informed about industry trends. Here are some effective ways to network and build relationships in the tech industry:
+</p>
+
+<ul className="list-disc pl-6 space-y-2">
+  <li>Join professional organizations: Organizations like IEEE (Institute of Electrical and Electronics Engineers) or ACM (Association for Computing Machinery) offer resources, events, and networking opportunities specific to tech professionals.</li>
+  <li>Attend industry conferences and local tech meetups: These events are excellent for learning about new technologies, meeting like-minded professionals, and potentially finding job opportunities. Look for events on platforms like Meetup or Eventbrite.</li>
+  <li>Engage with the tech community on social media: Platforms like LinkedIn and Twitter are great for connecting with industry professionals, following thought leaders, and participating in tech discussions. Share your thoughts, projects, and articles to build your personal brand.</li>
+  <li>Consider finding a mentor: A mentor can provide valuable guidance, share industry insights, and help you navigate your career path. Look for mentorship programs within your company or through professional organizations.</li>
+  <li>Participate in online forums and communities: Platforms like Reddit, Stack Overflow, and GitHub Discussions allow you to engage with other tech professionals, ask questions, and share your knowledge.</li>
+  <li>Attend or organize hackathons: These events are not just for coding; they're great networking opportunities where you can meet potential collaborators, employers, or even co-founders.</li>
+  <li>Volunteer for tech-related causes: Offering your skills to non-profit organizations or open-source projects can help you make connections while contributing to meaningful causes.</li>
+</ul>
+
+<p>
+  Remember, networking is about building genuine relationships, not just collecting contacts. Focus on how you can provide value to others, and be open to learning from those around you. Cultivate these relationships over time, and they can become a valuable asset throughout your career.
+</p>
+
+## 5. Gain Practical Experience 🛠️
+
+<p>
+  While theoretical knowledge is important, hands-on experience is invaluable in the tech industry. Employers often prioritize candidates who can demonstrate practical skills and real-world problem-solving abilities. Here are several ways to gain that crucial experience:
+</p>
+
+<ul className="list-disc pl-6 space-y-2">
+  <li>Internships or apprenticeships: These opportunities provide a structured environment to learn and apply your skills in a professional setting. Many tech companies offer internship programs, ranging from summer positions to year-long placements.</li>
+  <li>Freelance projects: Platforms like Upwork, Freelancer, or Toptal allow you to take on real client projects. Start with smaller tasks to build your reputation and gradually take on more complex projects.</li>
+  <li>Volunteer your skills for non-profit organizations: Many non-profits need technical assistance but lack the resources to hire full-time staff. This can be a great way to gain experience while contributing to a cause you care about.</li>
+  <li>Participate in open-source projects: Contributing to open-source software is an excellent way to gain experience working on large-scale projects and collaborating with developers worldwide.</li>
+  <li>Create side projects: Develop your own applications or tools. This allows you to experiment with new technologies and showcase your creativity.</li>
+  <li>Participate in coding bootcamps or intensive workshops: These programs often include practical projects and can help you quickly gain hands-on experience with specific technologies or frameworks.</li>
+  <li>Take on technical roles in student organizations or clubs: If you're still in school, look for opportunities to apply your skills in student-run organizations.</li>
+</ul>
+
+<p>
+  When seeking practical experience, don't be afraid to start small. Every project, no matter how minor, contributes to your skillset and portfolio. Be sure to document your work, the challenges you faced, and how you overcame them. This information will be valuable when discussing your experience in job interviews or on your resume.
+</p>
+
+## 6. Develop Soft Skills 🗣️
+
+<p>
+  While technical skills are crucial in the tech industry, soft skills are equally important for career success. These interpersonal and communication skills can set you apart from other candidates and are essential for effective teamwork, leadership, and career growth. Focus on developing the following soft skills:
+</p>
+
+<ul className="list-disc pl-6 space-y-2">
+  <li>Communication skills: In tech, you'll often need to explain complex concepts to non-technical stakeholders or collaborate with team members from diverse backgrounds. Practice clear and concise communication, both written and verbal.</li>
+  <li>Teamwork and collaboration: Most tech projects involve working in teams. Develop your ability to work effectively with others, share ideas, and contribute to a positive team dynamic.</li>
+  <li>Time management: Tech projects often have tight deadlines. Learn to prioritize tasks, estimate time accurately, and manage your workload efficiently.</li>
+  <li>Adaptability: The tech industry is constantly evolving. Cultivate the ability to quickly learn new technologies and adapt to changing project requirements or work environments.</li>
+  <li>Leadership qualities: Even if you're not in a management role, leadership skills are valuable. This includes taking initiative, mentoring others, and being able to lead projects or discussions when needed.</li>
+  <li>Problem-solving and critical thinking: Beyond technical problem-solving, develop the ability to approach broader challenges creatively and analytically.</li>
+  <li>Emotional intelligence: Understanding and managing your own emotions, as well as being empathetic to others, is crucial for building strong professional relationships.</li>
+  <li>Presentation skills: You may need to present your ideas, projects, or findings to colleagues, clients, or at conferences. Practice explaining technical concepts clearly and engagingly.</li>
+  <li>Conflict resolution: In any workplace, conflicts can arise. Learn how to address disagreements professionally and find constructive solutions.</li>
+  <li>Cultural awareness: In our globalized industry, you may work with people from diverse cultural backgrounds. Develop sensitivity and respect for cultural differences.</li>
+</ul>
+
+<p>
+  To improve these skills, seek out opportunities to practice them in your current role or through extracurricular activities. Consider joining a public speaking club like Toastmasters, taking on leadership roles in community organizations, or participating in team-based hackathons. Remember, developing soft skills is an ongoing process, and even small improvements can have a significant impact on your career success.
+</p>
+
+## 7. Stay Informed About Industry Trends 📊
+
+<p>
+  The tech industry is known for its rapid pace of change. Staying informed about the latest developments, emerging technologies, and industry trends is crucial for maintaining your relevance and identifying new opportunities. Here are some effective ways to stay up-to-date:
+</p>
+
+<ul className="list-disc pl-6 space-y-2">
+  <li>Follow tech news websites and blogs: Sites like TechCrunch, Wired, Ars Technica, and The Verge offer daily updates on tech news. For more specialized information, look for blogs focused on your area of expertise.</li>
+  <li>Subscribe to relevant podcasts and YouTube channels: These mediums often provide in-depth discussions and tutorials on emerging technologies and industry trends. Some popular tech podcasts include "Software Engineering Daily," "Syntax," and "This Week in Tech."</li>
+  <li>Participate in online forums and discussions: Platforms like Reddit (e.g., r/programming, r/technology), Hacker News, and Stack Overflow can provide insights into what developers are currently discussing and working on.</li>
+  <li>Attend virtual or in-person tech conferences: Major conferences like Google I/O, Apple WWDC, or Microsoft Build often showcase new technologies and industry directions.</li>
+  <li>Follow influential tech leaders and companies on social media: Twitter and LinkedIn are particularly good for this. Many tech leaders share insights and predictions about industry trends.</li>
+  <li>Read research papers and whitepapers: For cutting-edge developments, especially in fields like AI and machine learning, academic papers can provide valuable insights.</li>
+  <li>Subscribe to industry newsletters: Many tech publications offer curated newsletters that summarize the most important news and trends.</li>
+  <li>Experiment with new technologies: Hands-on experience with new tools and frameworks can give you a deeper understanding of emerging trends.</li>
+  <li>Join professional associations: Organizations like IEEE or ACM often provide members with access to the latest research and industry reports.</li>
+  <li>Engage in continuous learning: Platforms like Coursera, edX, and Udacity offer courses on emerging technologies, often developed in partnership with leading tech companies.</li>
+</ul>
+
+<p>
+  While it's important to stay informed, it's equally crucial to be discerning about the information you consume. Focus on reputable sources and try to understand not just what's changing, but why it's changing and how it might impact your field. Develop the habit of setting aside time regularly to catch up on industry news and reflect on how these developments might affect your career path or the projects you're working on.
+</p>
+
+## 8. Consider Certifications 🏅
+
+<p>
+  While not always necessary, certifications can boost your credibility, validate your skills, and sometimes give you an edge in the job market. They can be particularly valuable when transitioning to a new area of technology or seeking career advancement. Here are some popular certifications in various tech fields:
+</p>
+
+<ul className="list-disc pl-6 space-y-2">
+  <li>AWS Certified Solutions Architect: This certification validates your expertise in designing distributed systems on Amazon Web Services (AWS). It's highly valued in the growing cloud computing sector.</li>
+  <li>Google Certified Professional Cloud Architect: Similar to the AWS certification, this validates your ability to design, develop, and manage robust, secure, scalable, highly available, and dynamic solutions to drive business objectives on Google Cloud Platform.</li>
+  <li>Certified Information Systems Security Professional (CISSP): This is one of the most respected certifications in the cybersecurity field. It covers a broad range of security topics and is often required for senior security positions.</li>
+  <li>Project Management Professional (PMP): While not strictly a tech certification, PMP is valuable for those moving into project management roles in tech companies.</li>
+  <li>Microsoft Certified: Azure Solutions Architect Expert: This certification is for those who advise stakeholders and translate business requirements into secure, scalable, and reliable solutions for Azure.</li>
+  <li>Certified Ethical Hacker (CEH): This certification is valuable for cybersecurity professionals, particularly those interested in penetration testing and ethical hacking.</li>
+  <li>Certified Data Professional (CDP): Offered by the Institute for Certification of Computing Professionals, this certification has several specializations for data professionals.</li>
+  <li>Certified Information Systems Auditor (CISA): This is crucial for professionals interested in information systems auditing, control, and security.</li>
+  <li>Certified Scrum Master (CSM): For those interested in agile project management, particularly using the Scrum framework.</li>
+  <li>Cisco Certified Network Associate (CCNA): This certification is valuable for those working with network infrastructure, particularly Cisco systems.</li>
+</ul>
+
+<p>
+  When considering certifications, research which ones are most valued in your specific field and region. Some employers may prefer hands-on experience over certifications, while others may require specific certifications for certain roles. Also, consider the time and cost involved in obtaining and maintaining these certifications. Many require regular renewal through continuing education or re-examination.
+</p>
+
+<p>
+  Remember, while certifications can be beneficial, they should complement your practical skills and experience, not replace them. The most effective approach is often a combination of certifications, hands-on experience, and a strong portfolio of projects.
+</p>
+
+## 9. Prepare for the Job Search 🔍
+
+<p>
+  When you're ready to enter the job market or look for new opportunities, thorough preparation can significantly increase your chances of success. Here's a comprehensive guide to preparing for your tech job search:
+</p>
+
+<ul className="list-disc pl-6 space-y-2">
+  <li>Tailor your resume and cover letter for each application:
+    <ul className="list-disc pl-6 mt-2">
+      <li>Highlight relevant skills and experiences that match the job description</li>
+      <li>Use industry-specific keywords to pass Applicant Tracking Systems (ATS)</li>
+      <li>Quantify your achievements where possible (e.g., "Improved application performance by 30%")</li>
+      <li>Keep your resume concise, ideally one to two pages</li>
+      <li>In your cover letter, explain why you're passionate about the role and company</li>
+    </ul>
+  </li>
+  <li>Practice common interview questions and coding challenges:
+    <ul className="list-disc pl-6 mt-2">
+      <li>Prepare for behavioral questions using the STAR method (Situation, Task, Action, Result)</li>
+      <li>Practice technical interviews on platforms like LeetCode, HackerRank, or CodeSignal</li>
+      <li>Be ready to discuss projects from your portfolio in detail</li>
+      <li>Prepare questions to ask your interviewers about the role and company</li>
+    </ul>
+  </li>
+  <li>Research companies thoroughly before interviews:
+    <ul className="list-disc pl-6 mt-2">
+      <li>Understand the company's products, services, and recent news</li>
+      <li>Research the company culture and values</li>
+      <li>Look up your interviewers on LinkedIn if their names are provided</li>
+      <li>Understand the company's tech stack and how it relates to your skills</li>
+    </ul>
+  </li>
+  <li>Optimize your online presence:
+    <ul className="list-disc pl-6 mt-2">
+      <li>Ensure your LinkedIn profile is up-to-date and professional</li>
+      <li>Showcase your best projects on GitHub or a personal website</li>
+      <li>Consider writing technical blog posts to demonstrate your expertise</li>
+    </ul>
+  </li>
+  <li>Network strategically:
+    <ul className="list-disc pl-6 mt-2">
+      <li>Attend industry events and meetups</li>
+      <li>Reach out to alumni or connections at companies you're interested in</li>
+      <li>Engage with professionals in your field on LinkedIn</li>
+    </ul>
+  </li>
+  <li>Prepare for different types of interviews:
+    <ul className="list-disc pl-6 mt-2">
+      <li>Phone screenings</li>
+      <li>Technical interviews (whiteboarding, pair programming)</li>
+      <li>Behavioral interviews</li>
+      <li>System design interviews (for more senior roles)</li>
+    </ul>
+  </li>
+  <li>Negotiate your salary and benefits package:
+    <ul className="list-disc pl-6 mt-2">
+      <li>Research typical salaries for the role in your area</li>
+      <li>Consider the entire compensation package, including benefits and stock options</li>
+      <li>Practice salary negotiation scenarios</li>
+      <li>Be prepared to discuss your salary expectations early in the process</li>
+    </ul>
+  </li>
+</ul>
+
+<p>
+  Remember, job searching can be a lengthy process. Stay persistent, learn from each interview experience, and don't be discouraged by rejections. Each application and interview is an opportunity to refine your approach and get closer to finding the right role for you.
+</p>
+
+## 10. Embrace Lifelong Learning 🌱
+
+<p>
+  In the rapidly evolving tech industry, embracing lifelong learning is not just beneficial—it's essential for long-term career success. Technology changes quickly, and staying relevant requires a commitment to continuous learning and skill development. Here's how you can cultivate a lifelong learning mindset:
+</p>
+
+<ul className="list-disc pl-6 space-y-2">
+  <li>Set aside time for regular skill updates:
+    <ul className="list-disc pl-6 mt-2">
+      <li>Dedicate a few hours each week to learning new technologies or deepening your existing skills</li>
+      <li>Create a personal learning plan with short-term and long-term goals</li>
+      <li>Use tools like Trello or Notion to track your learning progress</li>
+    </ul>
+  </li>
+  <li>Explore adjacent technologies to your main focus:
+    <ul className="list-disc pl-6 mt-2">
+      <li>If you're a front-end developer, learn about back-end technologies, or vice versa</li>
+      <li>Understand how your work fits into the broader technology ecosystem</li>
+      <li>Learn about emerging technologies that could impact your field</li>
+    </ul>
+  </li>
+  <li>Consider pursuing advanced degrees or specialized training:
+    <ul className="list-disc pl-6 mt-2">
+      <li>Evaluate whether a master's degree or Ph.D. could benefit your career goals</li>
+      <li>Look into part-time or online degree programs that allow you to continue working</li>
+      <li>Consider specialized bootcamps or intensive courses for rapid skill acquisition</li>
+    </ul>
+  </li>
+  <li>Engage in continuous online learning:
+    <ul className="list-disc pl-6 mt-2">
+      <li>Utilize platforms like Coursera, edX, or Udacity for structured online courses</li>
+      <li>Follow tutorials on YouTube or platforms like Pluralsight for specific technologies</li>
+      <li>Participate in webinars and virtual conferences</li>
+    </ul>
+  </li>
+  <li>Practice teaching and mentoring:
+    <ul className="list-disc pl-6 mt-2">
+      <li>Explaining concepts to others can deepen your own understanding</li>
+      <li>Consider mentoring junior developers or giving talks at local meetups</li>
+      <li>Write blog posts or create video tutorials to share your knowledge</li>
+    </ul>
+  </li>
+  <li>Stay updated with industry publications and research:
+    <ul className="list-disc pl-6 mt-2">
+      <li>Subscribe to relevant journals or magazines in your field</li>
+      <li>Follow key researchers or thought leaders on social media</li>
+      <li>Attend academic or industry conferences when possible</li>
+    </ul>
+  </li>
+  <li>Experiment with personal projects:
+    <ul className="list-disc pl-6 mt-2">
+      <li>Use side projects to learn new technologies or programming languages</li>
+      <li>Contribute to open-source projects to learn from other developers</li>
+      <li>Build projects that solve real-world problems you're interested in</li>
+    </ul>
+  </li>
+  <li>Develop a growth mindset:
+    <ul className="list-disc pl-6 mt-2">
+      <li>View challenges as opportunities for growth</li>
+      <li>Embrace failure as a learning experience</li>
+      <li>Cultivate curiosity and a love for learning itself</li>
+    </ul>
+  </li>
+</ul>
+
+<p className="mt-6">
+  Remember, building a successful career in tech is a marathon, not a sprint. Stay curious, be persistent, and don't be afraid to take calculated risks. With dedication and the right approach, you can build a rewarding and impactful career in the ever-evolving world of technology. The key is to remain adaptable, continuously update your skills, and always be open to new opportunities and challenges. By embracing lifelong learning, you'll not only stay relevant in your current role but also be prepared for whatever new developments the future of tech may bring.
+</p>
+
+
+--- content/blog/the-future-of-education-ai-and-machine-learning.md ---
+
+---
+id: 2
+title: "The Future of Education: AI and Machine Learning"
+date: "2024-03-05"
+author:
+  name: "Dr. Sarah Chen"
+  avatar: "https://example.com/avatars/sarah-chen.jpg"
+readTime: "8 min read"
+category: "Technology"
+image: "https://images.unsplash.com/photo-1620712943543-bcc4688e7485"
+---
+
+In recent years, the integration of Artificial Intelligence (AI) and Machine Learning (ML) into education has been nothing short of revolutionary. As we stand on the brink of a new era in learning, it's crucial to understand how these technologies are reshaping the educational landscape.
+
+## Personalized Learning Paths
+
+One of the most significant impacts of AI in education is the ability to create personalized learning experiences. AI algorithms can analyze a student's performance, learning style, and pace to tailor content and difficulty levels accordingly. This personalization ensures that each student receives a unique educational journey optimized for their individual needs.
+
+- **Adaptive Learning Platforms**: Systems that adjust in real-time to student responses.
+- **Intelligent Tutoring Systems**: AI-powered tutors that provide one-on-one guidance.
+- **Customized Curriculum**: Content that evolves based on student progress and interests.
+
+## Enhanced Accessibility and Inclusion
+
+AI and ML are breaking down barriers in education, making learning more accessible to diverse groups of students:
+
+- **Language Translation**: Real-time translation of educational content.
+- **Assistive Technologies**: Tools that aid students with disabilities.
+- **24/7 Learning Opportunities**: AI-powered platforms that allow learning anytime, anywhere.
+
+## Data-Driven Insights for Educators
+
+Machine Learning algorithms can process vast amounts of educational data, providing teachers and institutions with valuable insights:
+
+- **Early Intervention**: Identifying at-risk students before they fall behind.
+- **Curriculum Optimization**: Analyzing which teaching methods are most effective.
+- **Predictive Analytics**: Forecasting student outcomes and tailoring support accordingly.
+
+## Challenges and Ethical Considerations
+
+While the potential of AI and ML in education is immense, it's important to address the challenges:
+
+1. **Data Privacy**: Ensuring student information is protected.
+2. **Algorithmic Bias**: Preventing and addressing biases in AI systems.
+3. **Digital Divide**: Ensuring equal access to AI-enhanced education.
+
+## The Road Ahead
+
+As we embrace these technologies, the future of education looks increasingly dynamic and student-centered. From virtual reality classrooms to AI-powered career guidance, the possibilities are endless. 
+
+By harnessing the power of AI and ML, we can create an educational ecosystem that not only imparts knowledge but also fosters creativity, critical thinking, and lifelong learning skills essential for the 21st century.
+
+The future of education is here, and it's powered by intelligence – both artificial and human.
+
+--- public/assets/images/orange.png ---
+
+Error reading file: 'utf-8' codec can't decode byte 0x89 in position 0: invalid start byte
+
+
+--- src/App.tsx ---
+
+import React from 'react';
+import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import Header from './components/Header';
+import Footer from './components/Footer';
+import Home from './pages/Home';
+import Blog from './pages/Blog';
+import Courses from './pages/Courses';
+import CourseSinglePage from './pages/CourseSinglePage';
+import Buy from './pages/Buy';
+import Contact from './pages/Contact';
+import About from './pages/About';
+import BlogPost from './pages/Blog/[slug]'; // Update this line
+
+function App() {
+  return (
+    <Router>
+      <div className="flex flex-col min-h-screen">
+        <Header />
+        <main className="flex-grow">
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/blog" element={<Blog />} />
+            <Route path="/courses" element={<Courses />} />
+            <Route path="/courses/:id" element={<CourseSinglePage />} />
+            <Route path="/buy" element={<Buy />} />
+            <Route path="/contact" element={<Contact />} />
+            <Route path="/about" element={<About />} />
+            <Route path="/blog/:slug" element={<BlogPost />} />
+          </Routes>
+        </main>
+        <Footer />
+      </div>
+    </Router>
+  );
+}
+
+export default App;
+
+--- src/main.tsx ---
+
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App.tsx'
+import './index.css'
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+)
+
+
+--- src/index.css ---
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+--- src/vite-env.d.ts ---
+
+/// <reference types="vite/client" />
+
+
+--- src/utils/api.ts ---
+
+import { marked } from 'marked'; // ⬇️ Import marked for markdown conversion
+
+export interface BlogPost {
+  id: number;
+  title: string;
+  content: string;
+  date: string;
+  author: {
+    name: string;
+    avatar: string;
+    bio: string;
+  };
+  category: string;
+  image: string;
+  readTime: string;
+  tags: string[];
+  slug: string; // Add this line
+}
+
+export const fetchBlogPosts = async (): Promise<BlogPost[]> => {
+  try {
+    const response = await fetch('/api/blog-posts');
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching blog posts:', error);
+    throw error;
+  }
+};
+
+export const getBlogContent = async (slug: string) => {
+  try {
+    const response = await fetch(`/api/blog-posts/${slug}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch blog post: ${response.statusText}`);
+    }
+    const post = await response.json();
+    return {
+      content: await convertMarkdownToHTML(post.content),
+      metadata: {
+        title: post.title,
+        date: post.date,
+        author: post.author,
+        category: post.category,
+        image: post.image,
+        readTime: post.readTime,
+        tags: post.tags || [],
+      },
+    };
+  } catch (error) {
+    console.error('Error fetching blog content:', error);
+    throw error;
+  }
+};
+
+// Helper function to convert Markdown to HTML
+const convertMarkdownToHTML = async (markdown: string): Promise<string> => {
+  return marked(markdown);
+};
+
+// Remove the unused slugify function
+
+--- src/components/VideoModal.tsx ---
+
+import React, { useState, useEffect } from 'react';
+import { X, Maximize2, Minimize2, Volume2, VolumeX } from 'lucide-react';
+
+interface VideoModalProps {
+  onClose: () => void;
+  videoId?: string;
+}
+
+const VideoModal: React.FC<VideoModalProps> = ({ onClose, videoId = 'dQw4w9WgXcQ' }) => {
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+
+  useEffect(() => {
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => {
+      window.removeEventListener('keydown', handleEsc);
+    };
+  }, [onClose]);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen();
+      setIsFullscreen(true);
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+        setIsFullscreen(false);
+      }
+    }
+  };
+
+  const toggleMute = () => {
+    setIsMuted(!isMuted);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl">
+        <div className="flex justify-between items-center p-4 border-b">
+          <h2 className="text-xl font-semibold">Video Preview</h2>
+          <div className="flex space-x-2">
+            <button
+              onClick={toggleMute}
+              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+            >
+              {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+            </button>
+            <button
+              onClick={toggleFullscreen}
+              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+            >
+              {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+        <div className="relative pt-[56.25%]">
+          <iframe
+            className="absolute top-0 left-0 w-full h-full"
+            src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=${isMuted ? 1 : 0}`}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+          ></iframe>
+        </div>
+        <div className="p-4 bg-gray-50">
+          <h3 className="text-lg font-semibold mb-2">Video Title</h3>
+          <p className="text-gray-600">
+            This is a brief description of the video. It provides context and information about what the viewer can expect to see.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default VideoModal;
+
+--- src/components/EnhancedPricing.tsx ---
+
+import React, { useState } from "react"
+import { motion } from "framer-motion"
+import { Check, X } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Switch } from "@/components/ui/switch"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+
+const plans = [
+  {
+    name: "Starter",
+    monthlyPrice: 49,
+    annualPrice: 470,
+    description: "Perfect for individuals just starting their AI journey",
+    features: [
+      "Full course access",
+      "Community forum",
+      "Monthly Q&A sessions",
+      "Certificate of completion",
+    ],
+    cta: "Start Learning",
+  },
+  {
+    name: "Pro",
+    monthlyPrice: 99,
+    annualPrice: 950,
+    description: "Ideal for serious learners aiming for mastery",
+    features: [
+      "Everything in Starter",
+      "1-on-1 mentoring sessions",
+      "Advanced projects review",
+      "Priority support",
+      "Exclusive webinars",
+    ],
+    cta: "Go Pro",
+    popular: true,
+  },
+  {
+    name: "Enterprise",
+    monthlyPrice: 299,
+    annualPrice: 2870,
+    description: "Tailored for teams and organizations",
+    features: [
+      "Everything in Pro",
+      "Custom curriculum",
+      "Team progress tracking",
+      "Dedicated account manager",
+      "On-demand instructor access",
+      "Custom AI project consultation",
+    ],
+    cta: "Contact Sales",
+  },
+]
+
+const FeatureItem: React.FC<{ feature: string; included?: boolean }> = ({ feature, included = true }) => (
+  <li className="flex items-center space-x-2">
+    {included ? (
+      <Check className="h-5 w-5 text-green-500" />
+    ) : (
+      <X className="h-5 w-5 text-red-500" />
+    )}
+    <span>{feature}</span>
+  </li>
+)
+
+const PriceDisplay: React.FC<{ price: number }> = ({ price }) => (
+  <motion.span
+    key={price}
+    initial={{ opacity: 0, y: -20 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.5 }}
+    className="text-4xl font-bold"
+  >
+    ${price}
+  </motion.span>
+)
+
+const EnhancedPricing: React.FC = () => {
+  const [isAnnual, setIsAnnual] = useState(false)
+
+  return (
+    <section className="py-20 bg-gradient-to-b from-purple-50 to-white">
+      <div className="container mx-auto px-4">
+        <h2 className="text-4xl font-bold text-center mb-4">Choose Your Learning Path</h2>
+        <p className="text-xl text-center text-gray-600 mb-8">
+          Invest in your future with our flexible pricing plans
+        </p>
+        <div className="flex justify-center items-center space-x-4 mb-12">
+          <span className={`text-lg ${!isAnnual ? "font-semibold" : ""}`}>Monthly</span>
+          <Switch
+            checked={isAnnual}
+            onCheckedChange={setIsAnnual}
+            className="data-[state=checked]:bg-purple-600"
+          />
+          <span className={`text-lg ${isAnnual ? "font-semibold" : ""}`}>Annual</span>
+          <span className="ml-2 inline-block bg-green-100 text-green-800 text-xs font-semibold px-2 py-1 rounded-full">
+            Save up to 20%
+          </span>
+        </div>
+        <div className="grid md:grid-cols-3 gap-8">
+          {plans.map((plan) => (
+            <Card
+              key={plan.name}
+              className={`flex flex-col justify-between relative overflow-hidden transition-all duration-300 ${
+                plan.popular
+                  ? "border-purple-500 shadow-lg shadow-purple-100 hover:shadow-xl hover:shadow-purple-200"
+                  : "hover:shadow-lg"
+              }`}
+            >
+              {plan.popular && (
+                <div className="absolute top-0 right-0 bg-purple-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg">
+                  MOST POPULAR
+                </div>
+              )}
+              <div>
+                <CardHeader>
+                  <CardTitle className="text-2xl font-bold">{plan.name}</CardTitle>
+                  <p className="text-gray-600">{plan.description}</p>
+                </CardHeader>
+                <CardContent>
+                  <div className="mb-4">
+                    <PriceDisplay price={isAnnual ? plan.annualPrice : plan.monthlyPrice} />
+                    <span className="text-gray-600">/{isAnnual ? "year" : "month"}</span>
+                  </div>
+                  <ul className="space-y-2 mb-6">
+                    {plan.features.map((feature, featureIndex) => (
+                      <FeatureItem key={featureIndex} feature={feature} />
+                    ))}
+                  </ul>
+                </CardContent>
+              </div>
+              <CardFooter className="mt-auto">
+                <Button className="w-full bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 text-lg font-semibold">
+                  {plan.cta}
+                </Button>
+              </CardFooter>
+            </Card>
+          ))}
+        </div>
+        <div className="mt-12 text-center">
+          <p className="text-gray-600 mb-4">All plans include:</p>
+          <div className="flex justify-center space-x-4 mb-8">
+            <span className="inline-flex items-center text-sm text-gray-600">
+              <Check className="h-5 w-5 text-green-500 mr-1" /> 30-day money-back guarantee
+            </span>
+            <span className="inline-flex items-center text-sm text-gray-600">
+              <Check className="h-5 w-5 text-green-500 mr-1" /> Cancel anytime
+            </span>
+            <span className="inline-flex items-center text-sm text-gray-600">
+              <Check className="h-5 w-5 text-green-500 mr-1" /> 24/7 support
+            </span>
+          </div>
+        </div>
+        <div className="mt-16 max-w-3xl mx-auto">
+          <h3 className="text-2xl font-bold text-center mb-6">Frequently Asked Questions</h3>
+          <Accordion type="single" collapsible className="w-full">
+            {[
+              {
+                question: "Can I switch plans later?",
+                answer:
+                  "Yes, you can upgrade or downgrade your plan at any time. If you upgrade, you'll be charged the prorated difference. If you downgrade, you'll receive credit towards your next billing cycle.",
+              },
+              {
+                question: "Is there a student discount?",
+                answer:
+                  "Yes, we offer a 20% discount for students with a valid .edu email address. Please contact our support team to verify your student status and receive your discount code.",
+              },
+              {
+                question: "Do you offer team or enterprise pricing?",
+                answer:
+                  "Our Enterprise plan is designed for teams and organizations. We also offer custom pricing for larger teams or specific needs. Please contact our sales team for more information.",
+              },
+              {
+                question: "What's included in the money-back guarantee?",
+                answer:
+                  "We offer a 30-day money-back guarantee for all our plans. If you're not satisfied with the course for any reason, simply contact our support team within 30 days of your purchase for a full refund.",
+              },
+            ].map((faq, index) => (
+              <AccordionItem key={index} value={`faq-${index}`}>
+                <AccordionTrigger>{faq.question}</AccordionTrigger>
+                <AccordionContent>{faq.answer}</AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+export default EnhancedPricing
+
+--- src/components/EnhancedBlogCard.tsx ---
+
+import React from 'react'
+import { Link } from 'react-router-dom'
+import { BookmarkIcon, Clock, Share2, CalendarIcon } from 'lucide-react'
+import { Card, CardContent, CardFooter, CardHeader } from "./ui/card"
+import { Button } from "./ui/button"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip"
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar"
+import { Badge } from "./ui/badge"
+import { format } from 'date-fns'
+
+interface EnhancedBlogCardProps {
+  id: number;
+  title: string;
+  content: string;
+  author: {
+    name: string;
+    avatar: string;
+    bio: string;
+  };
+  date: string;
+  readTime: string;
+  category: string;
+  image: string;
+  tags: string[];
+  slug: string;
+}
+
+// ... (keep other subcomponents like CategoryBadge, BlogTitle, AuthorInfo, etc.)
+
+const CategoryBadge = ({ category }: { category: string }) => (
+  <Badge className="absolute top-4 left-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold px-3 py-1 rounded-full shadow-md">
+    {category}
+  </Badge>
+)
+
+const BlogTitle = ({ title, slug }: { title: string; slug: string }) => (
+  <h3 className="text-2xl font-bold tracking-tight leading-tight mb-2 line-clamp-2 group-hover:text-blue-600 transition-colors duration-300">
+    <Link to={`/blog/${slug}`} className="hover:underline">
+      {title}
+    </Link>
+  </h3>
+)
+
+const BlogExcerpt = ({ content }: { content: string | undefined }) => {
+  if (!content) {
+    return <p className="text-gray-600 dark:text-gray-300 line-clamp-3">No content available</p>;
+  }
+  const truncatedContent = content.split(' ').slice(0, 25).join(' ') + '...';
+  return <p className="text-gray-600 dark:text-gray-300 line-clamp-3">{truncatedContent}</p>;
+}
+
+const AuthorInfo = ({ author, date, readTime }: { author: { name: string; avatar?: string }; date: string; readTime?: string }) => (
+  <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+    <div className="flex items-center gap-2">
+      <Avatar className="h-8 w-8 border-2 border-white shadow-sm">
+        <AvatarImage src={author.avatar} alt={author.name} />
+        <AvatarFallback>{author.name[0]}</AvatarFallback>
+      </Avatar>
+      <span className="font-medium">{author.name}</span>
+    </div>
+    <div className="flex items-center gap-2">
+      <CalendarIcon className="h-4 w-4" />
+      <time dateTime={date}>{format(new Date(date), "MMMM d, yyyy")}</time>
+    </div>
+    {readTime && (
+      <div className="flex items-center gap-2">
+        <Clock className="h-4 w-4" />
+        <span>{readTime}</span>
+      </div>
+    )}
+  </div>
+)
+
+const BookmarkButton = React.forwardRef<HTMLButtonElement, React.ComponentPropsWithoutRef<typeof Button>>((props, ref) => (
+  <Button ref={ref} variant="ghost" size="icon" className="text-gray-500 hover:text-blue-600 transition-colors duration-300" {...props}>
+    <BookmarkIcon className="h-5 w-5" />
+    <span className="sr-only">Bookmark</span>
+  </Button>
+))
+BookmarkButton.displayName = 'BookmarkButton'
+
+const ShareButton = React.forwardRef<HTMLButtonElement, React.ComponentPropsWithoutRef<typeof Button>>((props, ref) => (
+  <Button ref={ref} variant="ghost" size="icon" className="text-gray-500 hover:text-blue-600 transition-colors duration-300" {...props}>
+    <Share2 className="h-5 w-5" />
+    <span className="sr-only">Share</span>
+  </Button>
+))
+ShareButton.displayName = 'ShareButton'
+
+const EnhancedBlogCard: React.FC<EnhancedBlogCardProps> = ({
+  title,
+  content,
+  author,
+  date,
+  readTime,
+  category,
+  image,
+  slug,
+}) => {
+  return (
+    <Card className="overflow-hidden transition-all duration-300 hover:shadow-xl group">
+      <div className="relative h-56 sm:h-64">
+        <img
+          src={image}
+          alt={title}
+          className="object-cover w-full h-full brightness-90 group-hover:brightness-100 transition-all duration-300"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+        <CategoryBadge category={category} />
+      </div>
+      <CardHeader className="pb-2">
+        <BlogTitle title={title} slug={slug} />
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <BlogExcerpt content={content} />
+        <AuthorInfo author={author} date={date} readTime={readTime} />
+      </CardContent>
+      <CardFooter className="flex justify-between items-center">
+        <Link to={`/blog/${slug}`}>
+          <Button variant="outline" className="group-hover:bg-blue-600 group-hover:text-white transition-all duration-300">
+            Read More
+          </Button>
+        </Link>
+        <div className="flex space-x-2">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <BookmarkButton />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Bookmark this post</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ShareButton />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Share this post</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      </CardFooter>
+    </Card>
+  )
+}
+
+export default EnhancedBlogCard
+
+--- src/components/Footer.tsx ---
+
+"use client"
+
+import React, { useState, useEffect } from "react";
+import { motion, AnimatePresence, useAnimation } from "framer-motion";
+import { Twitter, Github, Linkedin, Youtube, ArrowRight, Mail, Sparkles, Globe, Zap, Book, Users, Sun, Moon } from "lucide-react";
+
+const Footer: React.FC = () => {
+  const [email, setEmail] = useState("");
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const controls = useAnimation();
+
+  useEffect(() => {
+    controls.start({
+      backgroundColor: isDarkMode ? "#111827" : "#f3f4f6",
+      color: isDarkMode ? "#ffffff" : "#1f2937",
+      transition: { duration: 0.5 }
+    });
+  }, [isDarkMode, controls]);
+
+  const footerSections = [
+    {
+      title: "CourseHub",
+      links: [
+        { name: "About Us", href: "/about", icon: <Users className="w-4 h-4 mr-2" /> },
+        { name: "Careers", href: "/careers", icon: <Zap className="w-4 h-4 mr-2" /> },
+        { name: "Help Center", href: "/help", icon: <Book className="w-4 h-4 mr-2" /> },
+        { name: "Privacy & Terms", href: "/privacy-terms", icon: <Globe className="w-4 h-4 mr-2" /> },
+      ],
+    },
+    {
+      title: "Explore",
+      links: [
+        { name: "AI Courses", href: "/courses", icon: <Sparkles className="w-4 h-4 mr-2" /> },
+        { name: "Blog", href: "/blog", icon: <Mail className="w-4 h-4 mr-2" /> },
+        { name: "Resources", href: "/resources", icon: <Book className="w-4 h-4 mr-2" /> },
+        { name: "Pricing", href: "/buy", icon: <Zap className="w-4 h-4 mr-2" /> },
+      ],
+    },
+  ];
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setTimeout(() => {
+      setIsSubscribed(true);
+      setEmail("");
+    }, 1000);
+  };
+
+  return (
+    <motion.footer
+      animate={controls}
+      className="relative overflow-hidden py-16"
+    >
+      <div className="container mx-auto px-4 relative z-10">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="col-span-1 md:col-span-2"
+          >
+            <h2 className="text-4xl font-bold mb-6 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600">
+              CourseHub
+            </h2>
+            <p className={`${isDarkMode ? "text-gray-300" : "text-gray-700"} mb-8 text-lg`}>
+              Empowering learners worldwide with cutting-edge courses and resources.
+            </p>
+            <div className={`${isDarkMode ? "bg-gray-800" : "bg-white"} p-6 rounded-lg shadow-lg transform hover:scale-105 transition-transform duration-300`}>
+              <h3 className="text-xl font-semibold mb-4 flex items-center">
+                <Sparkles className="mr-2 text-yellow-400" />
+                Stay Ahead of the Curve
+              </h3>
+              <AnimatePresence>
+                {!isSubscribed ? (
+                  <motion.form
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onSubmit={handleSubmit}
+                    className="flex flex-col sm:flex-row gap-2"
+                  >
+                    <input
+                      type="email"
+                      placeholder="Enter your email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className={`${isDarkMode ? "bg-gray-700 text-white" : "bg-gray-100 text-gray-900"} px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 flex-grow`}
+                      required
+                    />
+                    <button
+                      type="submit"
+                      className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white px-6 py-2 rounded-md transition duration-300 ease-in-out flex items-center justify-center transform hover:scale-105"
+                    >
+                      Subscribe
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </button>
+                  </motion.form>
+                ) : (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="text-green-400 font-semibold flex items-center"
+                  >
+                    <Sparkles className="mr-2" />
+                    Thanks for subscribing!
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </motion.div>
+          {footerSections.map((section, index) => (
+            <motion.div
+              key={section.title}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.1 * (index + 1) }}
+            >
+              <h3 className="text-xl font-semibold mb-4">{section.title}</h3>
+              <ul className="space-y-3">
+                {section.links.map((link) => (
+                  <li key={link.name}>
+                    <a
+                      href={link.href}
+                      className={`${isDarkMode ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"} transition duration-300 ease-in-out flex items-center group`}
+                    >
+                      <span className="transform group-hover:scale-110 transition-transform duration-300 mr-2">
+                        {link.icon}
+                      </span>
+                      {link.name}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </motion.div>
+          ))}
+        </div>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.5 }}
+          className="mt-16 pt-8 border-t border-gray-700 flex flex-col sm:flex-row justify-between items-center"
+        >
+          <p className={`${isDarkMode ? "text-gray-400" : "text-gray-600"} text-sm mb-4 sm:mb-0`}>
+            © {new Date().getFullYear()} CourseHub Learning, Inc. All rights reserved.
+          </p>
+          <div className="flex space-x-6">
+            {[
+              { icon: <Twitter className="h-6 w-6" />, href: "https://twitter.com/coursehub" },
+              { icon: <Github className="h-6 w-6" />, href: "https://github.com/coursehub" },
+              { icon: <Linkedin className="h-6 w-6" />, href: "https://linkedin.com/company/coursehub" },
+              { icon: <Youtube className="h-6 w-6" />, href: "https://youtube.com/coursehub" },
+            ].map((social, index) => (
+              <motion.a
+                key={index}
+                href={social.href}
+                className={`${isDarkMode ? "text-gray-400 hover:text-white" : "text-gray-600 hover:text-gray-900"} transition duration-300 ease-in-out`}
+                whileHover={{ scale: 1.2, rotate: 5 }}
+                whileTap={{ scale: 0.9 }}
+              >
+                {social.icon}
+              </motion.a>
+            ))}
+          </div>
+        </motion.div>
+        <motion.div
+          className="absolute top-4 right-4"
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+        >
+          <button
+            onClick={() => setIsDarkMode(!isDarkMode)}
+            className={`p-2 rounded-full ${isDarkMode ? "bg-yellow-400 text-gray-900" : "bg-gray-800 text-yellow-400"}`}
+          >
+            {isDarkMode ? <Sun className="w-6 h-6" /> : <Moon className="w-6 h-6" />}
+          </button>
+        </motion.div>
+      </div>
+      <div className="mt-8 overflow-hidden">
+        <motion.div
+          animate={{ x: [0, -1000] }}
+          transition={{ repeat: Infinity, duration: 20, ease: "linear" }}
+          className="whitespace-nowrap"
+        >
+          <span className="text-sm font-medium mr-8">New Course: Advanced AI Ethics</span>
+          <span className="text-sm font-medium mr-8">Student Spotlight: Sarah's Journey to Tech Lead</span>
+          <span className="text-sm font-medium mr-8">Upcoming Webinar: Future of EdTech</span>
+          <span className="text-sm font-medium mr-8">CourseHub Partners with Top Tech Companies</span>
+        </motion.div>
+      </div>
+    </motion.footer>
+  );
+};
+
+export default Footer;
+
+--- src/components/CourseCardComponent.tsx ---
+
+import React from 'react'
+import { Star, ArrowRight } from "lucide-react"
+import { Button } from "../components/ui/button"
+import { Card, CardContent } from "../components/ui/card"
+import { Link } from 'react-router-dom'
+
+interface CourseCardProps {
+  id: number;  // Add this line
+  title: string;
+  rating: number;
+  startDate: string;
+  instructors: string[];
+  description: string;
+}
+
+export function CourseCardComponent({ id, title, rating, startDate, instructors, description }: CourseCardProps) {
+  return (
+    <Card className="overflow-hidden">
+      <CardContent className="p-0">
+        <div className="relative">
+          <div className="absolute inset-0 bg-gradient-to-br from-purple-400 via-pink-300 to-blue-300 opacity-30 z-0"></div>
+          <div 
+            className="absolute inset-0 z-10"
+            style={{
+              backgroundImage: `
+                linear-gradient(to right, rgba(255, 255, 255, 0.2) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255, 255, 255, 0.2) 1px, transparent 1px)
+              `,
+              backgroundSize: '20px 20px',
+            }}
+          ></div>
+          <div 
+            className="absolute inset-0 z-20"
+            style={{
+              backgroundImage: `
+                radial-gradient(circle at 20% 80%, rgba(255, 255, 255, 0.1) 0%, transparent 20%),
+                radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.1) 0%, transparent 20%)
+              `,
+              backgroundSize: '60% 60%, 60% 60%',
+              animation: 'moveBackground 20s ease-in-out infinite alternate'
+            }}
+          ></div>
+          <style>{`
+            @keyframes moveBackground {
+              0% {
+                background-position: 0% 0%, 100% 100%;
+              }
+              100% {
+                background-position: 100% 100%, 0% 0%;
+              }
+            }
+          `}</style>
+          <div className="p-8 relative z-30 backdrop-blur-sm bg-white/40">
+            <h1 className="text-3xl font-bold mb-4 text-gray-900">{title}</h1>
+            <div className="flex items-center mb-4">
+              {[...Array(5)].map((_, i) => (
+                <Star key={i} className="w-5 h-5 text-yellow-400 fill-current" />
+              ))}
+              <span className="ml-2 text-xl font-semibold text-gray-900">{rating.toFixed(1)}</span>
+              <span className="ml-2 text-xl text-gray-500">·</span>
+              <span className="ml-2 text-xl text-gray-500">Starts {startDate}</span>
+            </div>
+            <div className="flex items-center mb-6">
+              {instructors.map((instructor, index) => (
+                <React.Fragment key={index}>
+                  <div className="w-16 h-16 rounded-full bg-gray-300 mr-4"></div>
+                </React.Fragment>
+              ))}
+              <span className="text-xl font-semibold text-gray-900">{instructors.join(' and ')}</span>
+            </div>
+            <p className="text-gray-600 text-lg mb-6">{description}</p>
+            <Button className="w-full" variant="default" asChild>
+              <Link to={`/courses/${id}`}>
+                <span>View course</span>
+                <ArrowRight className="w-5 h-5 ml-2" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+--- src/components/HeroSection.tsx ---
+
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { ArrowRight, Play } from 'lucide-react';
+import { Button } from "@/components/ui/button";
+import VideoModal from '@/components/VideoModal';
+
+const HeroSection: React.FC = () => {
+  const [videoModalOpen, setVideoModalOpen] = useState(false);
+
+  const fadeIn = {
+    initial: { opacity: 0, y: 20 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: 0.6 }
+  };
+
+  return (
+    <section className="bg-gradient-to-b from-blue-50 to-white">
+      <div className="container mx-auto px-4 py-24 sm:py-32 lg:py-40">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+          <motion.div {...fadeIn} className="text-left max-w-xl">
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-tight tracking-tight mb-6">
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
+                Master Generative AI with Cursor
+              </span>
+            </h1>
+            <p className="text-lg sm:text-xl text-gray-700 mb-8 leading-relaxed">
+              Unlock the future of coding and supercharge your development skills with our cutting-edge AI course.
+            </p>
+            <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
+              <Button asChild size="lg" className="rounded-full w-full sm:w-auto">
+                <Link to="/courses" className="flex items-center justify-center">
+                  Explore Courses <ArrowRight className="ml-2 h-5 w-5" />
+                </Link>
+              </Button>
+              <Button 
+                variant="outline" 
+                size="lg" 
+                className="rounded-full w-full sm:w-auto"
+                onClick={() => setVideoModalOpen(true)}
+              >
+                <span className="flex items-center justify-center">
+                  Watch Demo <Play className="ml-2 h-5 w-5" />
+                </span>
+              </Button>
+            </div>
+          </motion.div>
+          <motion.div
+            className="order-first lg:order-last"
+            initial={{ x: 100, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            transition={{ duration: 0.8, delay: 0.2 }}
+          >
+            <img
+              src="/assets/images/orange.png"  // Updated path
+              alt="AI-powered coding"
+              className="w-full h-auto rounded-2xl shadow-2xl"
+            />
+          </motion.div>
+        </div>
+      </div>
+      {videoModalOpen && (
+        <VideoModal onClose={() => setVideoModalOpen(false)} videoId="dQw4w9WgXcQ" />
+      )}
+    </section>
+  );
+};
+
+export default HeroSection;
+
+--- src/components/Header.tsx ---
+
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { BookOpen, Menu, X } from 'lucide-react';
+
+const Header: React.FC = () => {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  const toggleMenu = () => setIsMenuOpen(!isMenuOpen);
+
+  const handleLinkClick = () => {
+    setIsMenuOpen(false);
+  };
+
+  return (
+    <header className="bg-white shadow-md">
+      <div className="container mx-auto px-4 py-4">
+        <div className="flex justify-between items-center">
+          <Link to="/" className="flex items-center space-x-2">
+            <BookOpen size={32} className="text-blue-600" />
+            <span className="text-2xl font-bold text-gray-800">CourseHub</span>
+          </Link>
+          
+          {/* Desktop Navigation */}
+          <nav className="hidden md:flex items-center space-x-6">
+            <Link to="/" className="text-gray-600 hover:text-blue-600" onClick={handleLinkClick}>Home</Link>
+            <Link to="/blog" className="text-gray-600 hover:text-blue-600" onClick={handleLinkClick}>Blog</Link>
+            <Link to="/about" className="text-gray-600 hover:text-blue-600" onClick={handleLinkClick}>About</Link>
+            <Link to="/contact" className="text-gray-600 hover:text-blue-600" onClick={handleLinkClick}>Contact</Link>
+            <Link to="/courses" className="text-gray-600 hover:text-blue-600" onClick={handleLinkClick}>Courses</Link>
+          </nav>
+          
+          <div className="hidden md:block">
+            <Link to="/buy" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition duration-300" onClick={handleLinkClick}>
+              Get Started
+            </Link>
+          </div>
+          
+          {/* Mobile Menu Button */}
+          <button className="md:hidden text-gray-600" onClick={toggleMenu}>
+            {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
+          </button>
+        </div>
+        
+        {/* Mobile Navigation */}
+        {isMenuOpen && (
+          <nav className="mt-4 md:hidden">
+            <Link to="/" className="block py-2 text-gray-600 hover:text-blue-600" onClick={handleLinkClick}>Home</Link>
+            <Link to="/blog" className="block py-2 text-gray-600 hover:text-blue-600" onClick={handleLinkClick}>Blog</Link>
+            <Link to="/about" className="block py-2 text-gray-600 hover:text-blue-600" onClick={handleLinkClick}>About</Link>
+            <Link to="/contact" className="block py-2 text-gray-600 hover:text-blue-600" onClick={handleLinkClick}>Contact</Link>
+            <Link to="/courses" className="block py-2 text-gray-600 hover:text-blue-600" onClick={handleLinkClick}>Courses</Link>
+            <Link to="/buy" className="block mt-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition duration-300 text-center" onClick={handleLinkClick}>
+              Get Started
+            </Link>
+          </nav>
+        )}
+      </div>
+    </header>
+  );
+};
+
+export default Header;
+
+--- src/components/FeaturesSection.tsx ---
+
+import React from 'react';
+import { motion } from 'framer-motion';
+import { BookOpen, Code, Zap, Users } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+const FeaturesSection: React.FC = () => {
+  const features = [
+    { icon: BookOpen, title: 'Comprehensive Curriculum', description: 'Cover all aspects of generative AI and its applications in coding.' },
+    { icon: Code, title: 'Hands-on Projects', description: 'Build real-world applications using Cursor and other AI tools.' },
+    { icon: Zap, title: 'Cutting-edge Techniques', description: 'Learn the latest AI-driven development methodologies.' },
+    { icon: Users, title: 'Expert Instructors', description: 'Learn from industry professionals with years of experience.' },
+  ];
+
+  return (
+    <section className="py-20 bg-white">
+      <div className="container mx-auto px-4">
+        <h2 className="text-4xl font-bold text-center mb-12">Why Choose Our Course?</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+          {features.map((feature, index) => (
+            <motion.div
+              key={index}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.5, delay: index * 0.1 }}
+            >
+              <Card>
+                <CardHeader>
+                  <feature.icon className="w-12 h-12 mb-4 text-blue-600" />
+                  <CardTitle>{feature.title}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p>{feature.description}</p>
+                </CardContent>
+              </Card>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+};
+
+export default FeaturesSection;
+
+--- src/components/ui/card.tsx ---
+
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+const Card = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={cn(
+      "rounded-lg border border-neutral-200 bg-white text-neutral-950 shadow-sm dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-50",
+      className
+    )}
+    {...props}
+  />
+))
+Card.displayName = "Card"
+
+const CardHeader = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={cn("flex flex-col space-y-1.5 p-6", className)}
+    {...props}
+  />
+))
+CardHeader.displayName = "CardHeader"
+
+const CardTitle = React.forwardRef<
+  HTMLParagraphElement,
+  React.HTMLAttributes<HTMLHeadingElement>
+>(({ className, ...props }, ref) => (
+  <h3
+    ref={ref}
+    className={cn(
+      "text-2xl font-semibold leading-none tracking-tight",
+      className
+    )}
+    {...props}
+  />
+))
+CardTitle.displayName = "CardTitle"
+
+const CardDescription = React.forwardRef<
+  HTMLParagraphElement,
+  React.HTMLAttributes<HTMLParagraphElement>
+>(({ className, ...props }, ref) => (
+  <p
+    ref={ref}
+    className={cn("text-sm text-neutral-500 dark:text-neutral-400", className)}
+    {...props}
+  />
+))
+CardDescription.displayName = "CardDescription"
+
+const CardContent = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div ref={ref} className={cn("p-6 pt-0", className)} {...props} />
+))
+CardContent.displayName = "CardContent"
+
+const CardFooter = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={cn("flex items-center p-6 pt-0", className)}
+    {...props}
+  />
+))
+CardFooter.displayName = "CardFooter"
+
+export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent }
+
+
+--- src/components/ui/progress.tsx ---
+
+"use client"
+
+import * as React from "react"
+import * as ProgressPrimitive from "@radix-ui/react-progress"
+
+import { cn } from "@/lib/utils"
+
+const Progress = React.forwardRef<
+  React.ElementRef<typeof ProgressPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof ProgressPrimitive.Root>
+>(({ className, value, ...props }, ref) => (
+  <ProgressPrimitive.Root
+    ref={ref}
+    className={cn(
+      "relative h-4 w-full overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800",
+      className
+    )}
+    {...props}
+  >
+    <ProgressPrimitive.Indicator
+      className="h-full w-full flex-1 bg-neutral-900 transition-all dark:bg-neutral-50"
+      style={{ transform: `translateX(-${100 - (value || 0)}%)` }}
+    />
+  </ProgressPrimitive.Root>
+))
+Progress.displayName = ProgressPrimitive.Root.displayName
+
+export { Progress }
+
+
+--- src/components/ui/scroll-area.tsx ---
+
+"use client"
+
+import * as React from "react"
+import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
+
+import { cn } from "@/lib/utils"
+
+const ScrollArea = React.forwardRef<
+  React.ElementRef<typeof ScrollAreaPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root>
+>(({ className, children, ...props }, ref) => (
+  <ScrollAreaPrimitive.Root
+    ref={ref}
+    className={cn("relative overflow-hidden", className)}
+    {...props}
+  >
+    <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">
+      {children}
+    </ScrollAreaPrimitive.Viewport>
+    <ScrollBar />
+    <ScrollAreaPrimitive.Corner />
+  </ScrollAreaPrimitive.Root>
+))
+ScrollArea.displayName = ScrollAreaPrimitive.Root.displayName
+
+const ScrollBar = React.forwardRef<
+  React.ElementRef<typeof ScrollAreaPrimitive.ScrollAreaScrollbar>,
+  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.ScrollAreaScrollbar>
+>(({ className, orientation = "vertical", ...props }, ref) => (
+  <ScrollAreaPrimitive.ScrollAreaScrollbar
+    ref={ref}
+    orientation={orientation}
+    className={cn(
+      "flex touch-none select-none transition-colors",
+      orientation === "vertical" &&
+        "h-full w-2.5 border-l border-l-transparent p-[1px]",
+      orientation === "horizontal" &&
+        "h-2.5 flex-col border-t border-t-transparent p-[1px]",
+      className
+    )}
+    {...props}
+  >
+    <ScrollAreaPrimitive.ScrollAreaThumb className="relative flex-1 rounded-full bg-neutral-200 dark:bg-neutral-800" />
+  </ScrollAreaPrimitive.ScrollAreaScrollbar>
+))
+ScrollBar.displayName = ScrollAreaPrimitive.ScrollAreaScrollbar.displayName
+
+export { ScrollArea, ScrollBar }
+
+
+--- src/components/ui/accordion.tsx ---
+
+import * as React from "react"
+import * as AccordionPrimitive from "@radix-ui/react-accordion"
+import { ChevronDown } from "lucide-react"
+
+import { cn } from "@/lib/utils"
+
+const Accordion = AccordionPrimitive.Root
+
+const AccordionItem = React.forwardRef<
+  React.ElementRef<typeof AccordionPrimitive.Item>,
+  React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Item>
+>(({ className, ...props }, ref) => (
+  <AccordionPrimitive.Item
+    ref={ref}
+    className={cn("border-b", className)}
+    {...props}
+  />
+))
+AccordionItem.displayName = "AccordionItem"
+
+const AccordionTrigger = React.forwardRef<
+  React.ElementRef<typeof AccordionPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Trigger>
+>(({ className, children, ...props }, ref) => (
+  <AccordionPrimitive.Header className="flex">
+    <AccordionPrimitive.Trigger
+      ref={ref}
+      className={cn(
+        "flex flex-1 items-center justify-between py-4 font-medium transition-all hover:underline [&[data-state=open]>svg]:rotate-180",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200" />
+    </AccordionPrimitive.Trigger>
+  </AccordionPrimitive.Header>
+))
+AccordionTrigger.displayName = AccordionPrimitive.Trigger.displayName
+
+const AccordionContent = React.forwardRef<
+  React.ElementRef<typeof AccordionPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Content>
+>(({ className, children, ...props }, ref) => (
+  <AccordionPrimitive.Content
+    ref={ref}
+    className={cn(
+      "overflow-hidden text-sm transition-all data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down",
+      className
+    )}
+    {...props}
+  >
+    <div className="pb-4 pt-0">{children}</div>
+  </AccordionPrimitive.Content>
+))
+AccordionContent.displayName = AccordionPrimitive.Content.displayName
+
+export { Accordion, AccordionItem, AccordionTrigger, AccordionContent }
+
+--- src/components/ui/tooltip.tsx ---
+
+"use client"
+
+import * as React from "react"
+import * as TooltipPrimitive from "@radix-ui/react-tooltip"
+
+import { cn } from "@/lib/utils"
+
+const TooltipProvider = TooltipPrimitive.Provider
+
+const Tooltip = TooltipPrimitive.Root
+
+const TooltipTrigger = TooltipPrimitive.Trigger
+
+const TooltipContent = React.forwardRef<
+  React.ElementRef<typeof TooltipPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
+>(({ className, sideOffset = 4, ...props }, ref) => (
+  <TooltipPrimitive.Content
+    ref={ref}
+    sideOffset={sideOffset}
+    className={cn(
+      "z-50 overflow-hidden rounded-md border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-950 shadow-md animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-50",
+      className
+    )}
+    {...props}
+  />
+))
+TooltipContent.displayName = TooltipPrimitive.Content.displayName
+
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider }
+
+
+--- src/components/ui/switch.tsx ---
+
+import * as React from "react"
+import * as SwitchPrimitives from "@radix-ui/react-switch"
+
+import { cn } from "@/lib/utils"
+
+const Switch = React.forwardRef<
+  React.ElementRef<typeof SwitchPrimitives.Root>,
+  React.ComponentPropsWithoutRef<typeof SwitchPrimitives.Root>
+>(({ className, ...props }, ref) => (
+  <SwitchPrimitives.Root
+    className={cn(
+      "peer inline-flex h-[24px] w-[44px] shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input",
+      className
+    )}
+    {...props}
+    ref={ref}
+  >
+    <SwitchPrimitives.Thumb
+      className={cn(
+        "pointer-events-none block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0"
+      )}
+    />
+  </SwitchPrimitives.Root>
+))
+Switch.displayName = SwitchPrimitives.Root.displayName
+
+export { Switch }
+
+--- src/components/ui/avatar.tsx ---
+
+"use client"
+
+import * as React from "react"
+import * as AvatarPrimitive from "@radix-ui/react-avatar"
+
+import { cn } from "@/lib/utils"
+
+const Avatar = React.forwardRef<
+  React.ElementRef<typeof AvatarPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Root>
+>(({ className, ...props }, ref) => (
+  <AvatarPrimitive.Root
+    ref={ref}
+    className={cn(
+      "relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full",
+      className
+    )}
+    {...props}
+  />
+))
+Avatar.displayName = AvatarPrimitive.Root.displayName
+
+const AvatarImage = React.forwardRef<
+  React.ElementRef<typeof AvatarPrimitive.Image>,
+  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Image>
+>(({ className, ...props }, ref) => (
+  <AvatarPrimitive.Image
+    ref={ref}
+    className={cn("aspect-square h-full w-full", className)}
+    {...props}
+  />
+))
+AvatarImage.displayName = AvatarPrimitive.Image.displayName
+
+const AvatarFallback = React.forwardRef<
+  React.ElementRef<typeof AvatarPrimitive.Fallback>,
+  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Fallback>
+>(({ className, ...props }, ref) => (
+  <AvatarPrimitive.Fallback
+    ref={ref}
+    className={cn(
+      "flex h-full w-full items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800",
+      className
+    )}
+    {...props}
+  />
+))
+AvatarFallback.displayName = AvatarPrimitive.Fallback.displayName
+
+export { Avatar, AvatarImage, AvatarFallback }
+
+
+--- src/components/ui/badge.tsx ---
+
+import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
+
+import { cn } from "@/lib/utils"
+
+const badgeVariants = cva(
+  "inline-flex items-center rounded-full border border-neutral-200 px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-neutral-950 focus:ring-offset-2 dark:border-neutral-800 dark:focus:ring-neutral-300",
+  {
+    variants: {
+      variant: {
+        default:
+          "border-transparent bg-neutral-900 text-neutral-50 hover:bg-neutral-900/80 dark:bg-neutral-50 dark:text-neutral-900 dark:hover:bg-neutral-50/80",
+        secondary:
+          "border-transparent bg-neutral-100 text-neutral-900 hover:bg-neutral-100/80 dark:bg-neutral-800 dark:text-neutral-50 dark:hover:bg-neutral-800/80",
+        destructive:
+          "border-transparent bg-red-500 text-neutral-50 hover:bg-red-500/80 dark:bg-red-900 dark:text-neutral-50 dark:hover:bg-red-900/80",
+        outline: "text-neutral-950 dark:text-neutral-50",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  }
+)
+
+export interface BadgeProps
+  extends React.HTMLAttributes<HTMLDivElement>,
+    VariantProps<typeof badgeVariants> {}
+
+function Badge({ className, variant, ...props }: BadgeProps) {
+  return (
+    <div className={cn(badgeVariants({ variant }), className)} {...props} />
+  )
+}
+
+export { Badge, badgeVariants }
+
+
+--- src/components/ui/separator.tsx ---
+
+"use client"
+
+import * as React from "react"
+import * as SeparatorPrimitive from "@radix-ui/react-separator"
+
+import { cn } from "@/lib/utils"
+
+const Separator = React.forwardRef<
+  React.ElementRef<typeof SeparatorPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof SeparatorPrimitive.Root>
+>(
+  (
+    { className, orientation = "horizontal", decorative = true, ...props },
+    ref
+  ) => (
+    <SeparatorPrimitive.Root
+      ref={ref}
+      decorative={decorative}
+      orientation={orientation}
+      className={cn(
+        "shrink-0 bg-neutral-200 dark:bg-neutral-800",
+        orientation === "horizontal" ? "h-[1px] w-full" : "h-full w-[1px]",
+        className
+      )}
+      {...props}
+    />
+  )
+)
+Separator.displayName = SeparatorPrimitive.Root.displayName
+
+export { Separator }
+
+
+--- src/components/ui/button.tsx ---
+
+import * as React from "react"
+import { Slot } from "@radix-ui/react-slot"
+import { cva, type VariantProps } from "class-variance-authority"
+
+import { cn } from "@/lib/utils"
+
+const buttonVariants = cva(
+  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-950 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 dark:ring-offset-neutral-950 dark:focus-visible:ring-neutral-300",
+  {
+    variants: {
+      variant: {
+        default: "bg-neutral-900 text-neutral-50 hover:bg-neutral-900/90 dark:bg-neutral-50 dark:text-neutral-900 dark:hover:bg-neutral-50/90",
+        destructive:
+          "bg-red-500 text-neutral-50 hover:bg-red-500/90 dark:bg-red-900 dark:text-neutral-50 dark:hover:bg-red-900/90",
+        outline:
+          "border border-neutral-200 bg-white hover:bg-neutral-100 hover:text-neutral-900 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-800 dark:hover:text-neutral-50",
+        secondary:
+          "bg-neutral-100 text-neutral-900 hover:bg-neutral-100/80 dark:bg-neutral-800 dark:text-neutral-50 dark:hover:bg-neutral-800/80",
+        ghost: "hover:bg-neutral-100 hover:text-neutral-900 dark:hover:bg-neutral-800 dark:hover:text-neutral-50",
+        link: "text-neutral-900 underline-offset-4 hover:underline dark:text-neutral-50",
+      },
+      size: {
+        default: "h-10 px-4 py-2",
+        sm: "h-9 rounded-md px-3",
+        lg: "h-11 rounded-md px-8",
+        icon: "h-10 w-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+)
+
+export interface ButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {
+  asChild?: boolean
+}
+
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant, size, asChild = false, ...props }, ref) => {
+    const Comp = asChild ? Slot : "button"
+    return (
+      <Comp
+        className={cn(buttonVariants({ variant, size, className }))}
+        ref={ref}
+        {...props}
+      />
+    )
+  }
+)
+Button.displayName = "Button"
+
+export { Button, buttonVariants }
+
+
+--- src/components/ui/input.tsx ---
+
+import React from 'react';
+
+export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {}
+
+export const Input: React.FC<InputProps> = (props) => {
+  return <input {...props} className={`border rounded px-2 py-1 ${props.className || ''}`} />;
+};
+
+--- src/components/course/CourseCurriculum.tsx ---
+
+import React from 'react';
+import { Card, CardContent } from "../ui/card";
+import { Progress } from "../ui/progress";
+import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
+import { Play, Book, Lightbulb, Zap, BarChart, Briefcase } from 'lucide-react';
+
+interface Lesson {
+  title: string;
+  duration: string;
+}
+
+interface Module {
+  title: string;
+  icon: React.ReactNode;
+  duration: string;
+  lessons: Lesson[];
+}
+
+interface CourseCurriculumProps {
+  modules: Module[];
+  progress: number;
+}
+
+const CourseCurriculum: React.FC<CourseCurriculumProps> = ({ modules, progress }) => {
+  return (
+    <div className="space-y-8">
+      <h2 className="text-3xl font-extrabold text-center bg-clip-text text-transparent bg-gradient-to-r from-purple-500 to-pink-500">
+        Course Curriculum
+      </h2>
+      <Progress value={progress} className="w-full" />
+      <div className="space-y-6">
+        {modules.map((module, index) => (
+          <Card key={index} className="overflow-hidden shadow-lg">
+            <div className="bg-gradient-to-r from-purple-500 to-pink-500 p-4 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-white flex items-center">
+                {module.icon}
+                <span className="ml-2">{module.title}</span>
+              </h3>
+              <Badge variant="secondary">{module.duration}</Badge>
+            </div>
+            <CardContent className="p-4 space-y-4">
+              {module.lessons.map((lesson, lessonIndex) => (
+                <div key={lessonIndex} className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Play className="w-4 h-4 text-purple-500" />
+                    <span>{lesson.title}</span>
+                  </div>
+                  <Badge>{lesson.duration}</Badge>
+                </div>
+              ))}
+              <Button className="w-full mt-4">Start Module</Button>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default CourseCurriculum;
+
+--- src/components/course/CourseOverview.tsx ---
+
+"use client"
+
+import React, { useState } from 'react';
+import { motion } from 'framer-motion';
+import { ChevronRight, Book, Clock, BarChart, Brain, Briefcase } from 'lucide-react';
+
+interface CourseOverviewProps {
+  // You can add any props here if needed
+}
+
+const CourseOverview: React.FC<CourseOverviewProps> = () => {
+  const [expandedTopic, setExpandedTopic] = useState<number | null>(null);
+
+  const topics = [
+    {
+      title: "Introduction to Modern Forecasting",
+      icon: <Book className="w-6 h-6" />,
+      description: "Learn the fundamentals of modern forecasting techniques and their applications in various industries."
+    },
+    {
+      title: "Time Series Analysis",
+      icon: <Clock className="w-6 h-6" />,
+      description: "Dive deep into time series data, understanding patterns, trends, and seasonality."
+    },
+    {
+      title: "Machine Learning for Forecasting",
+      icon: <BarChart className="w-6 h-6" />,
+      description: "Explore how machine learning algorithms can improve forecasting accuracy and efficiency."
+    },
+    {
+      title: "Deep Learning Models",
+      icon: <Brain className="w-6 h-6" />,
+      description: "Uncover the power of neural networks in handling complex forecasting challenges."
+    },
+    {
+      title: "Case Studies in Industry",
+      icon: <Briefcase className="w-6 h-6" />,
+      description: "Apply your knowledge to real-world scenarios from various industries."
+    },
+  ];
+
+  return (
+    <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-gray-100 p-8 rounded-xl shadow-2xl max-w-4xl mx-auto">
+      <h2 className="text-4xl font-bold mb-6 text-emerald-400">Course Overview</h2>
+      <p className="text-xl mb-8 leading-relaxed text-gray-300">
+        Embark on a transformative journey into the world of modern forecasting. Get hands-on experience with cutting-edge tools and dive deep into case studies of the most challenging forecasting scenarios in the industry.
+      </p>
+      
+      <div className="bg-slate-800/50 backdrop-blur-md rounded-lg p-6 shadow-lg border border-neutral-200 border-slate-700 dark:border-neutral-800">
+        <h3 className="text-2xl font-semibold mb-6 text-pink-400">What You'll Master</h3>
+        <div className="space-y-4">
+          {topics.map((topic, index) => (
+            <motion.div
+              key={index}
+              className="bg-slate-700 rounded-lg overflow-hidden cursor-pointer hover:bg-slate-600 transition-colors duration-300"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.1 }}
+              onClick={() => setExpandedTopic(expandedTopic === index ? null : index)}
+            >
+              <div className="flex items-center p-4">
+                <div className="mr-4 text-emerald-400">{topic.icon}</div>
+                <h4 className="text-lg font-medium flex-grow text-gray-100">{topic.title}</h4>
+                <ChevronRight
+                  className={`w-5 h-5 transform transition-transform text-pink-400 ${
+                    expandedTopic === index ? "rotate-90" : ""
+                  }`}
+                />
+              </div>
+              {expandedTopic === index && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="px-4 pb-4 bg-slate-800"
+                >
+                  <p className="text-sm text-gray-300">{topic.description}</p>
+                </motion.div>
+              )}
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default CourseOverview;
+
+--- src/components/course/CourseTestimonials.tsx ---
+
+import React from 'react';
+import { Card, CardContent } from "../ui/card";
+import { Star } from 'lucide-react';
+
+interface CourseTestimonialsProps {
+  course: {
+    rating: number;
+    students: number;
+  };
+}
+
+const testimonials = [
+  {
+    name: "Nate",
+    role: "Data Scientist",
+    company: "SP Plus",
+    cohort: "COHORT Q1 2024",
+    rating: 4.5,
+    comment: "Covers SOTA methods as well proper baselines and processes to start with consider. Very practical course, great for a working data scientist or advanced analyst.",
+    image: "/placeholder.svg?height=50&width=50"
+  },
+  // ... (add more testimonials as needed)
+];
+
+const CourseTestimonials: React.FC<CourseTestimonialsProps> = ({ course }) => {
+  return (
+    <Card>
+      <CardContent className="p-6">
+        <h3 className="text-2xl font-semibold mb-6 text-gray-800">What students are saying</h3>
+        <CourseRating rating={course.rating} students={course.students} />
+        <div className="space-y-6">
+          {testimonials.map((testimonial, index) => (
+            <TestimonialCard key={index} testimonial={testimonial} />
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+const CourseRating: React.FC<{ rating: number; students: number }> = ({ rating, students }) => (
+  <div className="flex items-center mb-4">
+    <div className="flex">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star key={star} className="w-5 h-5 text-yellow-400 fill-current" />
+      ))}
+    </div>
+    <span className="ml-2 text-lg font-semibold text-gray-800">{rating}</span>
+    <span className="ml-2 text-gray-600">({students} students)</span>
+  </div>
+);
+
+const TestimonialCard: React.FC<{ testimonial: any }> = ({ testimonial }) => (
+  <div className="border-b border-gray-200 pb-6 last:border-b-0">
+    <div className="flex items-center mb-2">
+      <div className="w-12 h-12 rounded-full bg-gray-300 mr-4"></div>
+      <div>
+        <h4 className="font-semibold text-gray-800">{testimonial.name}</h4>
+        <p className="text-sm text-gray-600">{testimonial.role} at {testimonial.company}</p>
+        <p className="text-sm text-gray-500">{testimonial.cohort}</p>
+      </div>
+    </div>
+    <div className="flex mb-2">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star
+          key={star}
+          className={`w-4 h-4 ${star <= testimonial.rating ? "text-yellow-400" : "text-gray-300"} fill-current`}
+        />
+      ))}
+    </div>
+    <p className="text-gray-600">{testimonial.comment}</p>
+  </div>
+);
+
+export default CourseTestimonials;
+
+--- src/components/course/CourseEnrollment.tsx ---
+
+"use client"
+
+import React, { useState } from 'react';
+import { motion } from "framer-motion"
+import { Card, CardContent } from "../ui/card";
+import { Button } from "../ui/button";
+import { Sparkles, Clock, FileText, Globe, Award } from "lucide-react"
+
+interface CourseEnrollmentProps {
+  course: {
+    price: number;
+    discount: number;
+    duration: string;
+    modules: string[];
+  };
+}
+
+const CourseEnrollment: React.FC<CourseEnrollmentProps> = ({ course }) => {
+  const [isHovered, setIsHovered] = useState(false);
+
+  return (
+    <div className="sticky top-4">
+      <motion.div
+        className="w-full max-w-md mx-auto bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl shadow-2xl overflow-hidden"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+      >
+        <CardContent className="p-8">
+          <PricingInfo price={course.price} discount={course.discount} />
+          <EnrollmentButton isHovered={isHovered} setIsHovered={setIsHovered} />
+          <CourseIncludes duration={course.duration} modulesCount={course.modules.length} />
+        </CardContent>
+      </motion.div>
+    </div>
+  );
+};
+
+const PricingInfo: React.FC<{ price: number; discount: number }> = ({ price, discount }) => (
+  <>
+    <motion.h2 
+      className="text-4xl font-bold text-white mb-4"
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.2, duration: 0.5 }}
+    >
+      ${price}
+    </motion.h2>
+    <div className="flex items-center mb-6">
+      <div className="h-2 flex-grow rounded-full bg-blue-300">
+        <motion.div 
+          className="h-full rounded-full bg-orange-400"
+          initial={{ width: 0 }}
+          animate={{ width: `${discount}%` }}
+          transition={{ delay: 0.5, duration: 1 }}
+        />
+      </div>
+      <span className="ml-4 text-orange-300 font-semibold">{discount}% off</span>
+    </div>
+    <p className="text-blue-100 mb-6">2 days left at this price!</p>
+  </>
+);
+
+const EnrollmentButton: React.FC<{ isHovered: boolean; setIsHovered: (value: boolean) => void }> = ({ isHovered, setIsHovered }) => (
+  <motion.button
+    className="w-full py-3 px-6 text-lg font-semibold text-blue-600 bg-white rounded-lg shadow-md hover:shadow-lg transition duration-300 ease-in-out flex items-center justify-center"
+    whileHover={{ scale: 1.05 }}
+    whileTap={{ scale: 0.95 }}
+    onHoverStart={() => setIsHovered(true)}
+    onHoverEnd={() => setIsHovered(false)}
+  >
+    {isHovered ? "Let's Go!" : "Enroll Now"}
+    <Sparkles className={`ml-2 ${isHovered ? "animate-ping" : ""}`} size={20} color="#f97316" />
+  </motion.button>
+);
+
+const CourseIncludes: React.FC<{ duration: string; modulesCount: number }> = ({ duration, modulesCount }) => (
+  <div className="bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg p-6 rounded-t-3xl mt-6">
+    <h3 className="text-xl font-semibold text-white mb-4">This course includes:</h3>
+    <ul className="space-y-3">
+      {[
+        { icon: Clock, text: `${duration} on-demand video` },
+        { icon: FileText, text: `${modulesCount} articles and resources` },
+        { icon: Globe, text: "Full lifetime access" },
+        { icon: Award, text: "Certificate of completion" },
+      ].map((item, index) => (
+        <motion.li 
+          key={index}
+          className="flex items-center text-blue-50"
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.7 + index * 0.1, duration: 0.5 }}
+        >
+          <item.icon className="mr-3 h-5 w-5 text-teal-300" />
+          {item.text}
+        </motion.li>
+      ))}
+    </ul>
+  </div>
+);
+
+export default CourseEnrollment;
+
+--- src/components/course/CourseHeader.tsx ---
+
+"use client"
+
+import { motion } from "framer-motion"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Clock, BookOpen, Users, Globe, Zap } from "lucide-react"
+
+interface Instructor {
+  name: string
+  role: string
+  avatar: string
+}
+
+interface CourseHeaderProps {
+  title: string
+  description: string
+  duration: string
+  modules: number
+  students: number
+  language: string
+  instructors: Instructor[]
+  level: string
+  skills: string[]
+}
+
+export function CourseHeader({
+  title,
+  description,
+  duration,
+  modules,
+  students,
+  language,
+  instructors,
+  level,
+  skills
+}: CourseHeaderProps) {
+  return (
+    <Card className="w-full overflow-hidden transition-all duration-300 ease-in-out hover:shadow-xl bg-gradient-to-br from-purple-50 to-indigo-100 dark:from-gray-900 dark:to-indigo-950">
+      <CardHeader className="pb-4">
+        <div className="flex items-center justify-between mb-4">
+          <Badge variant="outline" className="bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+            {level}
+          </Badge>
+          <Zap className="w-6 h-6 text-yellow-500" />
+        </div>
+        <CardTitle className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-indigo-600 dark:from-purple-400 dark:to-indigo-400 mb-4">
+          {title}
+        </CardTitle>
+        <p className="text-xl text-gray-600 dark:text-gray-300 mb-6">
+          {description}
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="flex items-center gap-2 bg-white dark:bg-gray-800 p-3 rounded-lg shadow-sm">
+            <Clock className="w-5 h-5 text-indigo-500" />
+            <span className="font-medium">{duration}</span>
+          </div>
+          <div className="flex items-center gap-2 bg-white dark:bg-gray-800 p-3 rounded-lg shadow-sm">
+            <BookOpen className="w-5 h-5 text-indigo-500" />
+            <span className="font-medium">{modules} modules</span>
+          </div>
+          <div className="flex items-center gap-2 bg-white dark:bg-gray-800 p-3 rounded-lg shadow-sm">
+            <Users className="w-5 h-5 text-indigo-500" />
+            <span className="font-medium">{students.toLocaleString()} students</span>
+          </div>
+          <div className="flex items-center gap-2 bg-white dark:bg-gray-800 p-3 rounded-lg shadow-sm">
+            <Globe className="w-5 h-5 text-indigo-500" />
+            <span className="font-medium">{language}</span>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap gap-2 mb-8">
+          {skills.map((skill, index) => (
+            <Badge key={index} variant="secondary" className="bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+              {skill}
+            </Badge>
+          ))}
+        </div>
+        <div className="mb-8">
+          <h4 className="font-semibold mb-4 text-xl text-indigo-700 dark:text-indigo-300">Course Instructors</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {instructors && instructors.map((instructor, index) => (
+              <motion.div
+                key={index}
+                className="flex items-center gap-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: index * 0.1 }}
+              >
+                <Avatar className="w-16 h-16 border-2 border-indigo-300 dark:border-indigo-600">
+                  <AvatarImage src={instructor.avatar} alt={instructor.name} />
+                  <AvatarFallback className="bg-indigo-200 text-indigo-800 dark:bg-indigo-800 dark:text-indigo-200">
+                    {instructor.name && instructor.name.split(' ').map(n => n[0]).join('')}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <p className="font-medium text-lg text-gray-800 dark:text-gray-200">{instructor.name}</p>
+                  <p className="text-sm text-indigo-600 dark:text-indigo-400">{instructor.role}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+        <div className="flex justify-center">
+          <Button className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold py-3 px-8 rounded-full transition-all duration-300 transform hover:scale-105 text-lg">
+            Enroll in This Course
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+--- src/lib/utils.ts ---
+
+import { type ClassValue, clsx } from "clsx"
+import { twMerge } from "tailwind-merge"
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+
+--- src/pages/Buy.tsx ---
+
+import React from 'react';
+import EnhancedPricing from '../components/EnhancedPricing';
+
+const Buy: React.FC = () => {
+  return (
+    <div>
+      <EnhancedPricing />
+    </div>
+  );
+};
+
+export default Buy;
+
+--- src/pages/Home.tsx ---
+
+import React from 'react';
+import { Link } from 'react-router-dom';
+import { ArrowRight } from 'lucide-react';
+import { Button } from "../components/ui/button";
+import HeroSection from '../components/HeroSection';
+import FeaturesSection from '../components/FeaturesSection';
+
+const Home: React.FC = () => {
+  return (
+    <div className="bg-gradient-to-b from-blue-50 to-white min-h-screen">
+      <HeroSection />
+      <FeaturesSection />
+      
+      {/* Course Overview Section */}
+      <section className="py-20">
+        <div className="container mx-auto px-4 text-center">
+          <h2 className="text-3xl font-bold mb-8">Explore Our Courses</h2>
+          <p className="text-xl mb-8 max-w-2xl mx-auto">
+            Discover our wide range of AI and programming courses designed to boost your skills.
+          </p>
+          <Button asChild size="lg" variant="default">
+            <Link to="/courses">View All Courses <ArrowRight className="ml-2" /></Link>
+          </Button>
+        </div>
+      </section>
+
+      {/* ... (keep existing sections) */}
+    </div>
+  );
+};
+
+export default Home;
+
+--- src/pages/Contact.tsx ---
+
+import React from 'react';
+import { Mail, Phone, MapPin } from 'lucide-react';
+
+const Contact: React.FC = () => {
+  return (
+    <div className="container mx-auto px-4 py-12">
+      <h1 className="text-4xl font-bold mb-8">Contact Us</h1>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div>
+          <h2 className="text-2xl font-semibold mb-4">Get in Touch</h2>
+          <p className="mb-4">We'd love to hear from you. Please fill out the form below or use our contact information.</p>
+          <div className="flex items-center mb-2">
+            <Mail size={20} className="mr-2" />
+            <span>info@coursehub.com</span>
+          </div>
+          <div className="flex items-center mb-2">
+            <Phone size={20} className="mr-2" />
+            <span>+1 (555) 123-4567</span>
+          </div>
+          <div className="flex items-center">
+            <MapPin size={20} className="mr-2" />
+            <span>123 Learning Street, Education City, 12345</span>
+          </div>
+        </div>
+        <div>
+          <form className="bg-white p-6 rounded-lg shadow-md">
+            <div className="mb-4">
+              <label htmlFor="name" className="block text-gray-700 font-bold mb-2">Name</label>
+              <input type="text" id="name" name="name" className="w-full px-3 py-2 border rounded-lg" required />
+            </div>
+            <div className="mb-4">
+              <label htmlFor="email" className="block text-gray-700 font-bold mb-2">Email</label>
+              <input type="email" id="email" name="email" className="w-full px-3 py-2 border rounded-lg" required />
+            </div>
+            <div className="mb-4">
+              <label htmlFor="message" className="block text-gray-700 font-bold mb-2">Message</label>
+              <textarea id="message" name="message" rows={4} className="w-full px-3 py-2 border rounded-lg" required></textarea>
+            </div>
+            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+              Send Message
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Contact;
+
+--- src/pages/Courses.tsx ---
+
+import React, { useState } from 'react';
+import { CourseCardComponent } from '../components/CourseCardComponent';
+
+const courses = [
+  {
+    id: 1,
+    title: 'Modern Forecasting in Practice',
+    description: 'Get hands-on experience with modern forecasting tools & learn from case studies of the toughest forecasting challenges in the industry',
+    rating: 4.9,
+    startDate: 'Feb 24',
+    instructors: ['Tim Januschowski', 'Jan Gasthaus'],
+    category: 'Data Science',
+  },
+  {
+    id: 2,
+    title: 'Generative AI with Large Language Models',
+    description: 'Learn the fundamentals of how generative AI works, and how to deploy it in real-world applications.',
+    rating: 4.8,
+    startDate: 'Mar 1',
+    instructors: ['Andrew Ng', 'Sharon Zhou'],
+    category: 'Artificial Intelligence',
+  },
+  {
+    id: 3,
+    title: 'AI Product Management',
+    description: 'Master the skills needed to build AI-powered products that create value for customers and businesses.',
+    rating: 4.7,
+    startDate: 'Mar 15',
+    instructors: ['Cem Dilmegani', 'Mariya Yao'],
+    category: 'Product Management',
+  },
+  {
+    id: 4,
+    title: 'Generative AI for Everyone',
+    description: 'Understand the capabilities and limitations of generative AI, and how to apply it in various industries.',
+    rating: 4.9,
+    startDate: 'Apr 1',
+    instructors: ['Andrew Ng'],
+    category: 'Artificial Intelligence',
+  },
+  {
+    id: 5,
+    title: 'Prompt Engineering for ChatGPT',
+    description: 'Learn advanced techniques to craft effective prompts and get the most out of ChatGPT and other language models.',
+    rating: 4.8,
+    startDate: 'Apr 10',
+    instructors: ['Riley Tomasek'],
+    category: 'Artificial Intelligence',
+  },
+  {
+    id: 6,
+    title: 'Building AI-Powered Chatbots',
+    description: 'Explore the world of conversational AI and learn to build intelligent chatbots using the latest technologies.',
+    rating: 4.7,
+    startDate: 'Apr 20',
+    instructors: ['Chip Huyen', 'Aakash Nain'],
+    category: 'Artificial Intelligence',
+  },
+];
+
+const categories = ['All', ...new Set(courses.map(course => course.category))];
+
+const Courses: React.FC = () => {
+  const [filteredCourses, setFilteredCourses] = useState(courses);
+
+  const filterCourses = (category: string) => {
+    if (category === 'All') {
+      setFilteredCourses(courses);
+    } else {
+      const newCourses = courses.filter((course) => course.category === category);
+      setFilteredCourses(newCourses);
+    }
+  };
+
+  return (
+    <div className="container mx-auto px-4 py-12">
+      <h1 className="text-4xl font-bold mb-8 text-center">Our Courses</h1>
+      <div className="flex justify-center mb-8">
+        {categories.map((category, index) => (
+          <button
+            key={index}
+            className="mx-2 px-4 py-2 bg-gray-200 rounded-full hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400"
+            onClick={() => filterCourses(category)}
+          >
+            {category}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        {filteredCourses.map((course) => (
+          <CourseCardComponent
+            key={course.id}
+            id={course.id}  // Add this line
+            title={course.title}
+            rating={course.rating}
+            startDate={course.startDate}
+            instructors={course.instructors}
+            description={course.description}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default Courses;
+
+--- src/pages/CourseSinglePage.tsx ---
+
+import React from 'react';
+import { useParams } from 'react-router-dom';
+import { CourseHeader } from "@/components/course/CourseHeader";
+import CourseOverview from '../components/course/CourseOverview';
+import CourseCurriculum from '../components/course/CourseCurriculum';
+import CourseTestimonials from '../components/course/CourseTestimonials';
+import CourseEnrollment from '../components/course/CourseEnrollment';
+import { getCourseById } from '../services/courseService';
+import { Book, BarChart, Zap, Lightbulb, Briefcase } from 'lucide-react';
+
+const CourseSinglePage: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  const course = getCourseById(id || '');
+
+  // Define the modules with the new structure
+  const modules = [
+    {
+      title: "Foundations of Modern Forecasting",
+      icon: <Book className="w-6 h-6" />,
+      duration: "2 weeks",
+      lessons: [
+        { title: "The Evolution of Forecasting in the AI Era", duration: "30 min" },
+        { title: "Key Concepts and Terminology in Modern Prediction", duration: "45 min" },
+        { title: "Ethical Considerations in AI-Driven Forecasting", duration: "40 min" },
+      ],
+    },
+    {
+      title: "Advanced Time Series Analysis",
+      icon: <BarChart className="w-6 h-6" />,
+      duration: "3 weeks",
+      lessons: [
+        { title: "Stationarity and Differencing in Time Series", duration: "50 min" },
+        { title: "ARIMA Models and Their Applications", duration: "55 min" },
+        { title: "Handling Seasonality and Trend in Forecasting", duration: "45 min" },
+      ],
+    },
+    {
+      title: "Machine Learning for Predictive Analytics",
+      icon: <Zap className="w-6 h-6" />,
+      duration: "4 weeks",
+      lessons: [
+        { title: "Feature Engineering for Time-Based Data", duration: "60 min" },
+        { title: "Ensemble Methods in Forecasting", duration: "55 min" },
+        { title: "Hyperparameter Tuning for Optimal Performance", duration: "50 min" },
+      ],
+    },
+    {
+      title: "Deep Learning Models in Forecasting",
+      icon: <Lightbulb className="w-6 h-6" />,
+      duration: "4 weeks",
+      lessons: [
+        { title: "RNNs and LSTMs for Sequence Prediction", duration: "65 min" },
+        { title: "Attention Mechanisms and Transformers in Forecasting", duration: "70 min" },
+        { title: "Transfer Learning in Time Series Analysis", duration: "55 min" },
+      ],
+    },
+    {
+      title: "Real-World Applications and Case Studies",
+      icon: <Briefcase className="w-6 h-6" />,
+      duration: "3 weeks",
+      lessons: [
+        { title: "Financial Market Prediction Strategies", duration: "60 min" },
+        { title: "Demand Forecasting in Supply Chain Management", duration: "55 min" },
+        { title: "Energy Consumption Forecasting for Smart Grids", duration: "50 min" },
+      ],
+    },
+  ];
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      <div className="absolute inset-0 bg-grid-slate-200 [mask-image:linear-gradient(0deg,#fff,rgba(255,255,255,0.6))] -z-10" />
+      <div className="container mx-auto px-4 py-12">
+        <div className="grid gap-8 md:grid-cols-3">
+          <div className="md:col-span-2 space-y-8">
+            <CourseHeader
+              title={course.title}
+              description={course.description}
+              duration={course.duration}
+              modules={course.modules.length}
+              students={course.students}
+              language={course.language}
+              instructors={course.instructors}
+              level={course.level}
+              skills={course.skills || []} // Ensure this property exists in your course object
+            />
+            <CourseOverview course={course} />
+            <CourseCurriculum modules={modules} progress={33} />
+            <CourseTestimonials course={course} />
+          </div>
+          <div>
+            <CourseEnrollment course={course} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default CourseSinglePage;
+
+--- src/pages/Blog.tsx ---
+
+import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import EnhancedBlogCard from '../components/EnhancedBlogCard';
+import { fetchBlogPosts, BlogPost } from '../utils/api';
+
+const Blog: React.FC = () => {
+  const [posts, setPosts] = useState<BlogPost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadPosts = async () => {
+      try {
+        console.log('Starting to fetch blog posts...');
+        const fetchedPosts = await fetchBlogPosts();
+        console.log('Fetched posts:', fetchedPosts);
+        setPosts(fetchedPosts);
+        setLoading(false);
+      } catch (err) {
+        console.error('Failed to fetch blog posts:', err);
+        setError(err instanceof Error ? err.message : 'An unknown error occurred');
+        setLoading(false);
+      }
+    };
+
+    loadPosts();
+  }, []);
+
+  if (loading) return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  if (error) return <div className="flex items-center justify-center h-screen text-red-600">{error}</div>;
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="container mx-auto px-4 py-12">
+        <h1 className="text-4xl font-bold mb-8 text-center">Our Blog</h1>
+        {posts.length === 0 ? (
+          <p className="text-center">No blog posts found.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {posts.map((post) => (
+              <Link to={`/blog/${post.slug}`} key={post.id}>
+                <EnhancedBlogCard {...post} />
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default Blog;
+
+--- src/pages/About.tsx ---
+
+"use client"
+
+import React from 'react';
+import { motion, useScroll, useTransform, useSpring, MotionValue } from "framer-motion";
+import { ArrowRight, Book, Users, Zap, RefreshCw, Globe } from "lucide-react";
+import { Button } from "@/components/ui/button";
+
+const AnimatedText: React.FC<{ text: string }> = ({ text }) => {
+  return (
+    <span className="inline-block overflow-hidden">
+      <motion.span
+        className="inline-block"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: "easeOut" }}
+      >
+        {text}
+      </motion.span>
+    </span>
+  );
+};
+
+const ParallaxImage: React.FC<{ scrollYProgress: MotionValue<number> }> = ({ scrollYProgress }) => {
+  const y = useTransform(scrollYProgress, [0, 1], [0, -50]);
+  return (
+    <motion.div style={{ y }} className="relative overflow-hidden rounded-lg shadow-2xl">
+      <motion.img 
+        src="https://images.unsplash.com/photo-1524178232363-1fb2b075b655?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1470&q=80" 
+        alt="Students engaged in online learning" 
+        className="w-full h-full object-cover"
+        initial={{ scale: 1.05 }}
+        animate={{ scale: 1 }}
+        transition={{ duration: 1.5, ease: "easeOut" }}
+      />
+    </motion.div>
+  );
+};
+
+const About: React.FC = () => {
+  const { scrollYProgress } = useScroll();
+  const scaleX = useSpring(scrollYProgress, {
+    stiffness: 100,
+    damping: 30,
+    restDelta: 0.001
+  });
+
+  const values = [
+    { icon: <Book className="w-6 h-6" />, title: "Excellence in Education", description: "Providing the highest quality courses and learning materials." },
+    { icon: <Zap className="w-6 h-6" />, title: "Innovation", description: "Embracing cutting-edge technologies and teaching methods." },
+    { icon: <Globe className="w-6 h-6" />, title: "Accessibility", description: "Making education available to everyone, everywhere." },
+    { icon: <Users className="w-6 h-6" />, title: "Community", description: "Fostering a supportive and collaborative learning environment." },
+    { icon: <RefreshCw className="w-6 h-6" />, title: "Continuous Improvement", description: "Constantly evolving based on student feedback and industry trends." },
+  ];
+
+  return (
+    <div className="bg-gradient-to-b from-cyan-50 to-white min-h-screen relative">
+      <motion.div
+        className="fixed top-0 left-0 right-0 h-1 bg-cyan-500 origin-left z-50"
+        style={{ scaleX }}
+      />
+      <div className="container mx-auto px-4 py-16">
+        <motion.h1 
+          className="text-6xl font-extrabold text-center mb-8 bg-clip-text text-transparent bg-gradient-to-r from-cyan-500 to-teal-400"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
+        >
+          <AnimatedText text="About CourseHub" />
+        </motion.h1>
+        
+        <motion.div 
+          className="max-w-3xl mx-auto text-center mb-16"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.2 }}
+        >
+          <p className="text-xl text-gray-700 mb-6">
+            <AnimatedText text="At CourseHub, we're passionate about making high-quality education accessible to everyone. Our mission is to empower learners worldwide by providing expert-led courses in various fields, from technology to business and beyond." />
+          </p>
+          <motion.a 
+            href="#learn-more" 
+            className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-cyan-600 hover:bg-cyan-700 transition duration-300 ease-in-out"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            Learn More <ArrowRight className="ml-2 w-5 h-5" />
+          </motion.a>
+        </motion.div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center mb-16">
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.8, delay: 0.4 }}
+          >
+            <h2 className="text-3xl font-bold mb-4 text-cyan-700">Our Mission</h2>
+            <p className="text-lg text-gray-700 mb-4">
+              <AnimatedText text="We believe that education is the key to personal and professional growth, and we're committed to helping our students achieve their goals through innovative online learning experiences." />
+            </p>
+            <p className="text-lg text-gray-700">
+              <AnimatedText text="Through innovative technology and passionate educators, we're creating a world where learning knows no bounds." />
+            </p>
+          </motion.div>
+          <ParallaxImage scrollYProgress={scrollYProgress} />
+        </div>
+
+        <motion.div 
+          className="mb-16"
+          initial="hidden"
+          animate="visible"
+          variants={{
+            hidden: { opacity: 0 },
+            visible: { 
+              opacity: 1,
+              transition: { staggerChildren: 0.1 }
+            }
+          }}
+        >
+          <motion.h2 
+            className="text-3xl font-bold text-center mb-8 text-cyan-700"
+            variants={{
+              hidden: { opacity: 0, y: -20 },
+              visible: { opacity: 1, y: 0 }
+            }}
+          >
+            Our Core Values
+          </motion.h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {values.map((value, index) => (
+              <motion.div 
+                key={index} 
+                className="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition duration-300 ease-in-out"
+                variants={{
+                  hidden: { opacity: 0, y: 20 },
+                  visible: { opacity: 1, y: 0 }
+                }}
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <motion.div 
+                  className="text-cyan-500 mb-4"
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ delay: 0.2 + index * 0.1, duration: 0.3 }}
+                >
+                  {value.icon}
+                </motion.div>
+                <h3 className="text-xl font-semibold mb-2 text-cyan-700">{value.title}</h3>
+                <p className="text-gray-600">{value.description}</p>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+
+        <motion.div 
+          className="bg-gradient-to-r from-cyan-500 to-teal-400 text-white p-12 rounded-2xl shadow-2xl"
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.6 }}
+        >
+          <h2 className="text-3xl font-bold mb-4">
+            <AnimatedText text="Join Us on Your Learning Journey" />
+          </h2>
+          <p className="text-lg mb-6">
+            <AnimatedText text="Whether you're looking to advance your career, learn a new skill, or explore a passion, CourseHub is here to support you every step of the way. Join our community of learners and start your educational journey today!" />
+          </p>
+          <Button 
+            asChild
+            className="bg-white text-cyan-700 hover:bg-gray-100 transition duration-300 ease-in-out"
+          >
+            <motion.a 
+              href="/courses" 
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              Explore Courses <ArrowRight className="ml-2 w-5 h-5" />
+            </motion.a>
+          </Button>
+        </motion.div>
+      </div>
+    </div>
+  );
+};
+
+export default About;
+
+--- src/pages/Blog/[slug].tsx ---
+
+import React from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { getBlogContent } from '../../utils/api';
+import { format } from 'date-fns';
+import { CalendarIcon, ClockIcon, TagIcon, LinkedinIcon, TwitterIcon, FacebookIcon, ArrowLeftIcon } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from "../../components/ui/avatar";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Card, CardContent } from "../../components/ui/card";
+import { Separator } from "../../components/ui/separator";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../components/ui/tooltip";
+
+interface BlogPostMetadata {
+  title: string;
+  date: string;
+  author: {
+    name: string;
+    avatar: string;
+    bio: string;
+  };
+  readTime: string;
+  category: string;
+  image: string;
+  tags: string[];
+}
+
+const BlogPost: React.FC = () => {
+  const { slug } = useParams<{ slug: string }>();
+  const [content, setContent] = React.useState<string>('');
+  const [metadata, setMetadata] = React.useState<BlogPostMetadata | null>(null);
+  const [loading, setLoading] = React.useState<boolean>(true);
+  const [error, setError] = React.useState<string>('');
+
+  React.useEffect(() => {
+    if (slug) {
+      getBlogContent(slug)
+        .then((data) => {
+          setContent(data.content);
+          setMetadata(data.metadata);
+          setLoading(false);
+        })
+        .catch((error) => {
+          console.error('Error fetching blog content:', error);
+          setError(`Failed to load blog post: ${error.message}`);
+          setLoading(false);
+        });
+    }
+  }, [slug]);
+
+  if (loading) return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  if (error) return <div className="flex items-center justify-center h-screen text-red-600">{error}</div>;
+  if (!metadata) return null;
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-12">
+      <div className="max-w-4xl mx-auto px-4">
+        <Link to="/blog" className="inline-flex items-center text-blue-600 hover:text-blue-800 mb-8 transition-colors duration-200">
+          <ArrowLeftIcon className="mr-2 h-4 w-4" />
+          Back to Blog
+        </Link>
+        <article className="bg-white shadow-xl rounded-2xl overflow-hidden">
+          <div className="relative h-[400px]">
+            <img
+              src={metadata.image}
+              alt={metadata.title}
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent" />
+            <div className="absolute bottom-0 left-0 p-8 text-white">
+              <Badge className="mb-4 bg-blue-600 hover:bg-blue-700 transition-colors duration-200">
+                {metadata.category}
+              </Badge>
+              <h1 className="text-5xl font-extrabold tracking-tight leading-tight mb-4">
+                {metadata.title}
+              </h1>
+              <div className="flex flex-wrap items-center gap-4 text-sm">
+                <div className="flex items-center gap-2">
+                  <Avatar className="h-10 w-10 border-2 border-white">
+                    <AvatarImage src={metadata.author.avatar} alt={metadata.author.name} />
+                    <AvatarFallback>{metadata.author.name[0]}</AvatarFallback>
+                  </Avatar>
+                  <span className="font-medium">{metadata.author.name}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <CalendarIcon className="h-4 w-4" />
+                  <time dateTime={metadata.date}>{format(new Date(metadata.date), 'MMMM d, yyyy')}</time>
+                </div>
+                <div className="flex items-center gap-2">
+                  <ClockIcon className="h-4 w-4" />
+                  <span>{metadata.readTime}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-8 sm:p-12">
+            <div className="prose prose-lg max-w-none">
+              <div dangerouslySetInnerHTML={{ __html: content }} />
+            </div>
+
+            <Separator className="my-12" />
+
+            <footer>
+              <div className="flex flex-wrap justify-between items-center mb-8">
+                <div className="flex flex-wrap gap-2 mb-4 sm:mb-0">
+                  <TagIcon className="h-5 w-5 text-gray-400" />
+                  {metadata.tags.map((tag, index) => (
+                    <Badge key={index} variant="outline" className="bg-gray-100 text-gray-800 hover:bg-gray-200 transition-colors duration-200">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+                <div className="flex gap-4">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="outline" size="icon" className="hover:bg-blue-100 hover:text-blue-600 transition-colors duration-200">
+                          <TwitterIcon className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Share on Twitter</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="outline" size="icon" className="hover:bg-blue-100 hover:text-blue-600 transition-colors duration-200">
+                          <LinkedinIcon className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Share on LinkedIn</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="outline" size="icon" className="hover:bg-blue-100 hover:text-blue-600 transition-colors duration-200">
+                          <FacebookIcon className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Share on Facebook</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+              </div>
+
+              <Card className="bg-gray-50 border-none shadow-md">
+                <CardContent className="flex flex-col sm:flex-row items-center gap-6 p-6">
+                  <Avatar className="h-24 w-24 border-4 border-white shadow-lg">
+                    <AvatarImage src={metadata.author.avatar} alt={metadata.author.name} />
+                    <AvatarFallback>{metadata.author.name[0]}</AvatarFallback>
+                  </Avatar>
+                  <div className="text-center sm:text-left">
+                    <h3 className="text-2xl font-semibold mb-2">{metadata.author.name}</h3>
+                    <p className="text-gray-600 mb-4 max-w-md">
+                      {metadata.author.bio}
+                    </p>
+                    <div className="flex flex-wrap justify-center sm:justify-start gap-4">
+                      <Link to={`/author/${metadata.author.name.toLowerCase().replace(' ', '-')}`}>
+                        <Button className="bg-blue-600 hover:bg-blue-700 text-white transition-colors duration-200">
+                          View Profile
+                        </Button>
+                      </Link>
+                      <Button variant="outline" className="hover:bg-blue-50 transition-colors duration-200">
+                        Follow
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </footer>
+          </div>
+        </article>
+      </div>
+    </div>
+  );
+}
+
+export default BlogPost;
+
+--- src/services/courseService.ts ---
+
+// This should be replaced with actual data fetching logic
+export const getCourseById = (id: string) => {
+  // Placeholder data
+  return {
+    id,
+    title: 'Modern Forecasting in Practice',
+    description: 'Get hands-on experience with modern forecasting tools & learn from case studies of the toughest forecasting challenges in the industry',
+    rating: 4.9,
+    startDate: 'Feb 24',
+    instructors: ['Tim Januschowski', 'Jan Gasthaus'],
+    category: 'Data Science',
+    duration: '20 hours',
+    students: 5234,
+    modules: [
+      'Introduction to Modern Forecasting',
+      'Time Series Analysis',
+      'Machine Learning for Forecasting',
+      'Deep Learning Models',
+      'Case Studies in Industry',
+    ],
+    price: 99.99,
+    discount: 67,
+    language: 'English',
+  };
+};

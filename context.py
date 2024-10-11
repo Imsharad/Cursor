@@ -8,7 +8,10 @@ def download_repo_to_file():
     all_contents = ""
     
     # Blacklist of directories and files to skip
-    blacklist = ['node_modules', '.git', '__pycache__', '.vscode', '.idea']
+    blacklist = ['node_modules', '.git', '__pycache__', '.vscode', '.idea', 'dist']
+    
+    # List of important files to include
+    important_files = ['Dockerfile', 'docker-compose.yml', '.gitignore', 'requirements.txt', 'start_docker.sh', 'stop_docker.sh']
     
     # Walk through all directories and files
     for dirpath, dirnames, filenames in os.walk(root_dir):
@@ -26,8 +29,8 @@ def download_repo_to_file():
             if filename == "context_output.txt":
                 continue
             
-            # Skip non-critical files and package files (adjust as needed)
-            if filename.endswith(('.pyc', '.log', '.tmp', '.cache', 'package.json', 'package-lock.json', 'requirements.txt')):
+            # Include important files and skip non-critical files
+            if filename not in important_files and (filename.endswith(('.pyc', '.log', '.tmp', '.cache')) or filename in ['package.json', 'package-lock.json']):
                 continue
             
             # Add file path as a header (relative to root)
